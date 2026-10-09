@@ -46,6 +46,9 @@ public class DngWriter
     private const ushort TagWhiteLevel = 50717;
     private const ushort TagColorMatrix1 = 50721;
     private const ushort TagCalibrationIlluminant1 = 50778;
+    private const ushort TagDefaultScale = 50718;
+    private const ushort TagDefaultCropOrigin = 50719;
+    private const ushort TagDefaultCropSize = 50820;
     private const ushort TagActiveArea = 50829;
     private const ushort TagBaselineExposure = 50730;
     private const ushort TagBaselineNoise = 50731;
@@ -138,6 +141,16 @@ public class DngWriter
             for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 4);
             rawBlock.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = (uint)values.Length, Blob = bytes });
         }
+        void RawRationals(ushort tag, (int num, int den)[] values)
+        {
+            var bytes = new byte[values.Length * 8];
+            for (int i = 0; i < values.Length; i++)
+            {
+                BitConverter.GetBytes(values[i].num).CopyTo(bytes, i * 8);
+                BitConverter.GetBytes(values[i].den).CopyTo(bytes, i * 8 + 4);
+            }
+            rawBlock.Entries.Add(new Entry { Tag = tag, Type = TypeRational, Count = (uint)values.Length, Blob = bytes });
+        }
 
         RawLong(TagNewSubfileType, 0);
         RawLong(TagImageWidth, (uint)width);
@@ -157,8 +170,27 @@ public class DngWriter
 
         // ActiveArea: full stored area — replicates ADC's Z8 geometry. The warp/vignette
         // opcodes normalize radius over the active area, so this must match ADC's
-        // convention (ActiveArea = full 8280x5520, no DefaultCrop).
+        // convention (full 8280x5520) or the correction strength shifts.
         RawLongs(TagActiveArea, new[] { 0u, 0u, (uint)height, (uint)width });
+
+        // DefaultCrop: ADC pairs the full ActiveArea with DefaultScale/Crop tags so the
+        // displayed image matches the NEF's framing (Z8: origin 12,8, size 8256x5504).
+        // Derived from the largest embedded preview (= camera's active crop), origin
+        // centered and CFA-phase-even.
+        var previews = originalMetadata?.Previews;
+        if (previews is { Count: > 0 })
+        {
+            var active = previews[^1];
+            if (active.Width <= width && active.Height <= height &&
+                (active.Width < width || active.Height < height))
+            {
+                uint ox = (uint)(((width - active.Width) / 2) & ~1);
+                uint oy = (uint)(((height - active.Height) / 2) & ~1);
+                RawRationals(TagDefaultScale, new[] { (1, 1), (1, 1) });
+                RawRationals(TagDefaultCropOrigin, new[] { ((int)ox, 1), ((int)oy, 1) });
+                RawRationals(TagDefaultCropSize, new[] { (active.Width, 1), (active.Height, 1) });
+            }
+        }
 
         // Strip data location — real entries, values resolved by the layout pass
         rawBlock.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
@@ -206,8 +238,6 @@ public class DngWriter
                 Inline = Pad(BitConverter.GetBytes((uint)p.Jpeg.Length)) });
             return block;
         }
-
-        var previews = originalMetadata?.Previews;
 
         // ================= IFD0 =================
         // With previews: IFD0 = thumbnail (ADC topology), raw + larger previews in SubIFDs.

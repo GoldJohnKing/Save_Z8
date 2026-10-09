@@ -127,12 +127,20 @@ public class DngPreviewTests : IDisposable
         uint px = U32(rawIfd.Tags[273].Value, 0);
         Assert.Equal(4000, U16(file, (int)px));                           // pixel[0]<<2
 
-        // ActiveArea: full stored area, replicating ADC geometry (no DefaultCrop)
+        // ActiveArea: full stored area (warp normalization base) + DefaultCrop pair
+        // (displayed framing matches NEF) — both in the raw IFD, replicating ADC.
         Assert.True(rawIfd.Tags.ContainsKey(50829), "ActiveArea missing");
         Assert.Equal(0u, U32(rawIfd.Tags[50829].Value, 0));
         Assert.Equal(12u, U32(rawIfd.Tags[50829].Value, 8));              // bottom = height
         Assert.Equal(16u, U32(rawIfd.Tags[50829].Value, 12));             // right = width
-        Assert.False(rawIfd.Tags.ContainsKey(50820), "DefaultCropSize should be absent");
+
+        Assert.True(rawIfd.Tags.ContainsKey(50820), "DefaultCropSize missing");
+        // RATIONAL×2: (12,1),(10,1) — crop = largest preview dims
+        Assert.Equal(12u, U32(rawIfd.Tags[50820].Value, 0));
+        Assert.Equal(10u, U32(rawIfd.Tags[50820].Value, 8));
+        Assert.True(rawIfd.Tags.ContainsKey(50719), "DefaultCropOrigin missing");
+        Assert.Equal(2u, U32(rawIfd.Tags[50719].Value, 0));               // (16-12)/2 = 2
+        Assert.Equal(0u, U32(rawIfd.Tags[50719].Value, 8));               // (12-10)/2=1 → &~1 = 0
 
         // preview SubIFD with the large JPEG
         var prevIfd = ParseIfd(file, prevOff);
