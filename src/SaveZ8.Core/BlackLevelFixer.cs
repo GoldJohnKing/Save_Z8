@@ -2,23 +2,13 @@ namespace SaveZ8.Core;
 
 /// <summary>
 /// Implements the Z8 black-level −1 LSB fix using the notch criterion.
-/// The notch criterion (c1008 < c1007/3) does not false-trigger on healthy frames
+/// The notch criterion (c1008 &lt; c1007/3) does not false-trigger on healthy frames
 /// whose analog black center is naturally below 1007.5 (e.g., ISO 100).
 /// </summary>
 public class BlackLevelFixer
 {
     public const int BlackLevelDefault = 1008;
     public const int NotchRatio = 3;
-
-    public enum FixMode
-    {
-        /// <summary>Notch criterion: c1008 &lt; c1007/3 — safe for all ISOs (recommended)</summary>
-        Notch,
-        /// <summary>Original Save Z8 criterion: c1008 &lt; c1007 — may false-trigger on ISO 100</summary>
-        SaveZ8,
-        /// <summary>No fixing, pass-through</summary>
-        Disabled
-    }
 
     public class FixResult
     {
@@ -31,20 +21,16 @@ public class BlackLevelFixer
     }
 
     /// <summary>
-    /// Apply the black-level fix in-place on the mosaic pixel array.
+    /// Apply the black-level fix in-place on the mosaic pixel array using the
+    /// notch criterion (c1008·3 &lt; c1007 per CFA quadrant).
     /// </summary>
     /// <param name="pixels">u16 mosaic array (will be modified)</param>
     /// <param name="width">Image width in pixels</param>
     /// <param name="height">Image height in pixels</param>
-    /// <param name="mode">Fix criterion mode</param>
     /// <param name="blackLevel">Nominal black level (default 1008)</param>
-    /// <returns>Fix result with statistics</returns>
     public static unsafe FixResult Fix(ushort[] pixels, int width, int height,
-        FixMode mode = FixMode.Notch, int blackLevel = BlackLevelDefault)
+        int blackLevel = BlackLevelDefault)
     {
-        if (mode == FixMode.Disabled)
-            return new FixResult { Applied = false };
-
         int bl = blackLevel;
         int b0 = bl - 2, b1 = bl - 1, b2 = bl; // {1006, 1007, 1008}
 
@@ -68,7 +54,7 @@ public class BlackLevelFixer
             }
         }
 
-        // Decision
+        // Decision: notch criterion per quadrant
         var thresholds = new int[4];
         bool anyFix = false;
         for (int q = 0; q < 4; q++)
@@ -77,14 +63,9 @@ public class BlackLevelFixer
             long c1 = counts[q, 1]; // count at BL-1 (1007)
             long c2 = counts[q, 2]; // count at BL   (1008)
 
-            thresholds[q] = mode switch
-            {
-                FixMode.SaveZ8 when c2 < c1 => b1,
-                FixMode.SaveZ8 when c2 > c1 && c1 < c0 => b0,
-                FixMode.Notch when c2 * NotchRatio < c1 => b1,
-                FixMode.Notch when c2 > c1 && c1 * NotchRatio < c0 => b0,
-                _ => 0
-            };
+            thresholds[q] = (c2 * NotchRatio < c1) ? b1
+                : (c2 > c1 && c1 * NotchRatio < c0) ? b0
+                : 0;
 
             if (thresholds[q] > 0) anyFix = true;
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -18,23 +19,38 @@ public partial class FileItemViewModel : ObservableObject
     [ObservableProperty] private bool _fixApplied;
     [ObservableProperty] private long _pixelsFixed;
     [ObservableProperty] private string _error = "";
-    [ObservableProperty] private string _outputPath = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenOutput))]
+    private string _outputPath = "";
+
+    public bool CanOpenOutput => !string.IsNullOrEmpty(OutputPath);
+
+    /// <summary>Open Explorer with the output file pre-selected.</summary>
+    [RelayCommand]
+    private void OpenOutput()
+    {
+        if (string.IsNullOrEmpty(OutputPath) || !File.Exists(OutputPath)) return;
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{OutputPath}\"")
+        {
+            UseShellExecute = true
+        });
+    }
 }
 
 public partial class MainViewModel : ObservableObject
 {
+    /// <summary>Subfolder created next to each NEF; fixed DNGs are written here.</summary>
+    public const string OutputFolderName = "Save_Z8";
+
     [ObservableProperty] private ObservableCollection<FileItemViewModel> _files = new();
-    [ObservableProperty] private string _outputDirectory = "";
     [ObservableProperty] private bool _isProcessing;
     [ObservableProperty] private double _progress;
     [ObservableProperty] private string _statusText = "拖放 NEF 文件到此处或点击添加";
-    [ObservableProperty] private int _fixModeIndex; // 0=Notch, 1=SaveZ8, 2=Disabled
     [ObservableProperty] private string _libRawVersion = "";
 
     private CancellationTokenSource? _cts;
     private readonly NefProcessor _processor = new();
-
-    public string[] FixModeNames { get; } = { "Notch（推荐，不误伤）", "Save Z8 原版", "禁用" };
 
     // File picking is handled by the View (Avalonia StorageProvider)
 
@@ -56,24 +72,12 @@ public partial class MainViewModel : ObservableObject
     private async Task ProcessAllAsync()
     {
         if (IsProcessing || Files.Count == 0) return;
-        if (string.IsNullOrWhiteSpace(OutputDirectory))
-        {
-            StatusText = "请先设置输出目录";
-            return;
-        }
 
         IsProcessing = true;
         Progress = 0;
         _cts = new CancellationTokenSource();
 
-        _processor.FixMode = FixModeIndex switch
-        {
-            0 => BlackLevelFixer.FixMode.Notch,
-            1 => BlackLevelFixer.FixMode.SaveZ8,
-            _ => BlackLevelFixer.FixMode.Disabled
-        };
-
-        var items = Files.Where(f => f.Status == "待处理" || f.Status == "错误").ToList();
+        var items = Files.Where(f => f.Status == "待处理" || f.Status.StartsWith("错误")).ToList();
         int total = items.Count;
         int done = 0;
 
@@ -87,23 +91,26 @@ public partial class MainViewModel : ObservableObject
 
                 await Task.Run(() =>
                 {
-                    var outputPath = Path.Combine(OutputDirectory,
+                    // Output: <NEF folder>\Save_Z8\<name>_fixed.dng
+                    var outputDir = Path.Combine(
+                        Path.GetDirectoryName(item.FilePath) ?? ".", OutputFolderName);
+                    var outputPath = Path.Combine(outputDir,
                         Path.GetFileNameWithoutExtension(item.FileName) + "_fixed.dng");
                     try
                     {
-                        // Ensure output directory exists
-                        Directory.CreateDirectory(OutputDirectory);
+                        Directory.CreateDirectory(outputDir);
 
                         var result = _processor.Process(item.FilePath, outputPath);
                         item.FixApplied = result.FixApplied;
                         item.PixelsFixed = result.PixelsFixed;
-                        item.OutputPath = result.OutputPath;
+                        item.OutputPath = result.Error == null ? result.OutputPath : "";
                         item.Error = result.Error ?? "";
                         item.Status = result.Error != null ? $"错误: {TruncateError(result.Error)}" :
                             (result.FixApplied ? $"已修复 ({result.PixelsFixed:N0} 像素)" : "无需修复");
                     }
                     catch (Exception ex)
                     {
+                        item.OutputPath = "";
                         item.Error = ex.Message;
                         item.Status = $"错误: {TruncateError(ex.Message)}";
                     }

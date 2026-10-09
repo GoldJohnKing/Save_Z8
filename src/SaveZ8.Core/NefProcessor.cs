@@ -7,7 +7,6 @@ namespace SaveZ8.Core;
 /// </summary>
 public class NefProcessor
 {
-    public BlackLevelFixer.FixMode FixMode { get; set; } = BlackLevelFixer.FixMode.Notch;
     public DngWriter.DngOptions DngOptions { get; set; } = new();
 
     /// <summary>
@@ -33,9 +32,9 @@ public class NefProcessor
                 OriginalMetadata = metadata
             };
 
-            // Fix
+            // Fix (notch criterion — always on)
             var fixResult = BlackLevelFixer.Fix(image.Pixels, image.Width, image.Height,
-                FixMode, image.BlackLevel);
+                image.BlackLevel);
 
             // Export
             DngWriter.Write(outputPath, image.Pixels, image.Width, image.Height,

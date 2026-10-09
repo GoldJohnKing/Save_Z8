@@ -85,7 +85,7 @@ class Diag
         try
         {
             var r = BlackLevelFixer.Fix(pixels, width, height,
-                BlackLevelFixer.FixMode.Notch, black > 0 ? black : 1008);
+                black > 0 ? black : 1008);
             Console.WriteLine(r.Applied ? $"APPLIED ({r.PixelsFixed:N0} px)" : "SKIP (no notch)");
         }
         catch (Exception ex)

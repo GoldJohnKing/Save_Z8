@@ -1,14 +1,25 @@
+# Build outputs (normalized by Directory.Build.props)
+build/
+out/
+
+# Legacy per-project outputs
 bin/
 obj/
-*.user
-*.suo
-.vs/
+
+# Native build artifacts
 libs/*.dll
 libs/*.lib
 libs/*.obj
 libs/*.exp
+
+# LibRaw submodule build artifacts
 external/libraw/bin/
 external/libraw/lib/
 external/libraw/object/
-*.obj
-*.exp
+
+# VS / Rider / temp
+.vs/
+*.user
+*.suo
+tmp-test/
+*.tmp

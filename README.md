@@ -1,65 +1,99 @@
 # Save Z8 Desktop — 尼康 Z8/Z9 黑位修复工具
 
-基于逆向工程确认的 Z8/Z9 ISO 黑位 −1 LSB 缺陷 (`y = x−1 for x ≤ 1008`)，提供批量 NEF 文件修复。
+基于逆向工程确认的 Z8/Z9 ISO 黑位 −1 LSB 缺陷（逐 CFA 通道 `stored = x−1 for x ≤ 1008`），
+批量将 NEF 修复并导出为 Adobe DNG，保留完整元数据、镜头校正与预览。
+
+- **修复判据**：Notch（`c1008·3 < c1007`，逐 CFA 象限）——对健康帧（如 ISO 100）零误触发
+- **输出**：未压缩 16-bit CFA DNG，写入 NEF 同目录的 `Save_Z8\` 文件夹
+- **元数据**：EXIF / GPS / Interop / MakerNote / XMP 完整搬迁
+- **镜头校正**：Nikon NEFInfo（SubIFD `0xC7D5`）→ DNG `WarpRectilinear`（畸变+色差）与
+  `FixVignetteRadial`（暗角）OpcodeList，数值与 Adobe DNG Converter 对齐
+- **预览**：NEF 内嵌缩略图 / 中图 / 全尺寸 JPEG 三级搬入 DNG（SubIFD + IFD0 双路径）
+
+## 参考项目：JO（Save Z8 算法出处）
+
+本项目的修复算法（黑位 −1 LSB 反演与 notch 判据优化）源自
+**[JO.html](https://y-g-jiang.github.io/JO.html)**（作者 y-g-jiang）网页工具中的
+"Save Z8" 功能，在此致谢。与 JO 的关系：
+
+| 组件 | JO 的实现 | 本项目 |
+|---|---|---|
+| NEF 解码 | joraw2.wasm（**LibRaw 0.22.2** WASM 封装，含 `nikonHe`/`nikonHeStar` 补丁） | LibRaw 0.21.3 原生 DLL + C 包装器 |
+| 修复算法 | Pyodide + numpy（网页内 Python） | C#（`BlackLevelFixer`） |
+| DNG 写盘 | Pyodide 手写 TIFF/DNG（`convert_to_dng`） | C#（`DngWriter`，结构对齐该参考实现） |
+
+JO 的 DNG 写盘器是本项目 DNG 核心标签集的参考蓝本；镜头校正 Opcode 映射
+（Nikon 私有格式 → Adobe DNG OpcodeList）则为本项目独立逆向，并与
+Adobe DNG Converter 18.6 的官方输出做过数值标定（详见 `src/SaveZ8.Core/NikonLensCorrection.cs` 头注）。
 
 ## 构建要求
 
-- **Visual Studio 2022/2026** (Windows)
-- **.NET 8.0 SDK** (Windows)
-- **LibRaw 0.21+**（支持 Z8 NEF 含 HE/HE*）
-  - 下载: https://www.libraw.org/download
-  - 需要 `libraw.dll`（Release 构建）
+- Windows + **Visual Studio 2022/2026**（MSVC x64）
+- **.NET 8.0 SDK**
+- **git**（拉取 LibRaw 子模块）
 
-## 构建步骤
-
-### 1. 编译 LibRaw 原生包装器
+## 一键构建
 
 ```cmd
-:: 假设 LibRaw 安装在 C:\libraw
-cl /LD /O2 /EHsc native\libraw_wrapper.c /I C:\libraw\include /link /LIBPATH:C:\libraw\lib libraw.lib
-:: 产出: libraw_wrapper.dll
+build.bat            :: Release（默认）
+build.bat Debug
 ```
 
-或将 `native\libraw_wrapper.c` 和 LibRaw 源码加入 VS 解决方案，作为静态库项目编译。
+脚本自动完成：子模块初始化 → LibRaw 0.21.3 编译 → `libraw_wrapper.dll` 编译 →
+.NET 解决方案构建 → 产物汇总。
 
-### 2. 部署 DLL
+**产物输出**（打包发布直接取用，无需进入项目目录）：
 
-将以下文件复制到 `libs/` 目录：
-- `libraw_wrapper.dll`（上一步编译产出）
-- `libraw.dll`（LibRaw 发行包）
+```
+out\SaveZ8.UI.exe        主程序
+out\*.dll                托管库 + libraw.dll + libraw_wrapper.dll
+out\*.json               运行时配置
+```
 
-项目 `.csproj` 已配置将 `libs/*.dll` 复制到输出目录。
+构建路径规范（由 `Directory.Build.props` 统一）：
 
-### 3. 编译解决方案
+```
+build\obj\<Project>\     中间文件
+build\bin\<Config>\<Project>\  编译输出
+out\                     最终分发目录
+libs\                    原生产物（libraw.dll / libraw_wrapper.dll / libraw.lib）
+```
 
-在 Visual Studio 中打开 `SaveZ8.sln`，按 F5 编译运行。
+首次构建 LibRaw 需数分钟；之后 `libs\libraw.dll` 存在即跳过（删除可强制重建）。
+`libraw_wrapper.dll` 每次全量重建（秒级）。
 
 ## 使用
 
-1. 启动程序
-2. 拖放 NEF 文件到窗口（或点击"浏览文件"）
-3. 选择输出目录
-4. 选择修复模式：
-   - **Notch（推荐）**: `c1008 < c1007/3`，不误伤健康帧
-   - **Save Z8 原版**: `c1008 < c1007`，可能误触发 ISO 100
-   - **禁用**: 仅解码导出
-5. 点击"🚑 开始修复"
+1. 运行 `out\SaveZ8.UI.exe`
+2. 拖入或选择 NEF 文件
+3. 点击"开始修复"——输出自动写入每个 NEF 所在目录的 `Save_Z8\<文件名>_fixed.dng`
+4. 完成后点击列表中的"已修复"可直接在资源管理器中定位产物
 
-## 输出
+修复在文件级完成：`y ≤ threshold → y+1`（逐 CFA 象限判定），像素级验证
+（45.7M 像素 0 失配）见 `tests/`。
 
-- 格式: 未压缩 16-bit DNG
-- BlackLevel: 4032 (= 1008 × 4)
-- WhiteLevel: 65019
-- 色彩矩阵: Z8 出厂标定
-- EXIF: 从原 NEF 字节级复制 IFD 树
+## 命令行诊断工具
 
-## 技术原理
+```cmd
+build\bin\Release\diag\net8.0-windows\diag.exe <NEF 路径>
+```
 
-详见: `Nikon_Z8_Firmware_Reverse_Engineering/docs/z8-iso64-blacklevel-defect.md`
+对单个文件执行完整管线（解码 → 元数据提取 → 修复 → DNG 写盘）并输出各步骤诊断。
 
-缺陷机制: 逐 CFA 通道确定性 `stored = x − 1 for x ≤ 1008`（数字基座）。
-修复: 逆映射 `+1 for stored ≤ T`，其中 T 由 notch 判据确定。
+## 项目结构
 
-## 许可
+```
+src\SaveZ8.Core\         核心库（解码/修复/元数据/镜头校正/DNG 写盘）
+src\SaveZ8.UI\           Avalonia 桌面界面
+tests\SaveZ8.Tests\      xUnit 测试（15 项）
+tools\diag\              命令行诊断工具
+native\libraw_wrapper.cpp  LibRaw C 包装器（P/Invoke 边界）
+external\libraw\         LibRaw 0.21.3 子模块
+```
 
-仅供个人研究用途。请遵守当地法律法规。
+## 已知限制
+
+- 暗角校正在"暗角控制=关闭"的文件上不写入（与 Adobe 行为一致）
+- 镜头校正标定基于 Z8 固件 3.11 + ADC 18.6（28mm 端实测验证，映射为纯几何转换）
+- HE/HE* 压缩 NEF 可解码，但 LibRaw 0.21.3 对个别 HE 帧报数据警告（0.22 已改进，
+  与 JO 的 joraw2 一致）；修复管线不受影响

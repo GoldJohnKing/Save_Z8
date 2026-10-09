@@ -45,7 +45,7 @@ public class BlackLevelFixerTests
         // Apply the defect (−1 for x ≤ 1008) in quadrants 0-2
         ApplyDefect(pixels, 200, 200, 1008, new[] { 0, 1, 2 });
 
-        var result = BlackLevelFixer.Fix(pixels, 200, 200, BlackLevelFixer.FixMode.Notch, 1008);
+        var result = BlackLevelFixer.Fix(pixels, 200, 200, 1008);
 
         Assert.True(result.Applied);
         Assert.True(result.PixelsFixed > 0);
@@ -60,35 +60,10 @@ public class BlackLevelFixerTests
         // Simulate a healthy ISO 100 frame with center 1007.2 (naturally below 1007.5)
         var pixels = MakeGaussian(200, 200, 1007.2, 2.5, seed: 99);
 
-        var result = BlackLevelFixer.Fix(pixels, 200, 200, BlackLevelFixer.FixMode.Notch, 1008);
+        var result = BlackLevelFixer.Fix(pixels, 200, 200, 1008);
 
         Assert.False(result.Applied);
         Assert.Equal(0, result.PixelsFixed);
-    }
-
-    [Fact]
-    public void SaveZ8Mode_DoesTrigger_OnHealthyISO100()
-    {
-        // Same healthy ISO 100 frame — Save Z8 original criterion SHOULD trigger (false positive)
-        var pixels = MakeGaussian(200, 200, 1007.2, 2.5, seed: 99);
-
-        var result = BlackLevelFixer.Fix(pixels, 200, 200, BlackLevelFixer.FixMode.SaveZ8, 1008);
-
-        // This documents the false-positive behavior of the original criterion
-        Assert.True(result.Applied, "Save Z8 original criterion triggers on healthy ISO 100 (known false positive)");
-    }
-
-    [Fact]
-    public void Disabled_DoesNothing()
-    {
-        var pixels = MakeGaussian(100, 100, 1008.3, 2.0);
-        var original = (ushort[])pixels.Clone();
-
-        var result = BlackLevelFixer.Fix(pixels, 100, 100, BlackLevelFixer.FixMode.Disabled, 1008);
-
-        Assert.False(result.Applied);
-        Assert.Equal(0, result.PixelsFixed);
-        Assert.Equal(original, pixels);
     }
 
     [Fact]
@@ -102,7 +77,7 @@ public class BlackLevelFixerTests
         int before1008 = pixels.Count(p => p == 1008);
         Assert.True(before1008 < 5000, $"1008 after defect: {before1008} (should be low)");
 
-        var result = BlackLevelFixer.Fix(pixels, 400, 400, BlackLevelFixer.FixMode.Notch, 1008);
+        var result = BlackLevelFixer.Fix(pixels, 400, 400, 1008);
         Assert.True(result.Applied);
 
         // After fix, 1008 should be restored as the peak

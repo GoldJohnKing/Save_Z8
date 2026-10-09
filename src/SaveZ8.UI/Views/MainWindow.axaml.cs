@@ -72,16 +72,4 @@ public partial class MainWindow : Window
         if (paths.Length > 0)
             ViewModel.AddFilesFromPaths(paths);
     }
-
-    private async void OnBrowseOutput(object? sender, RoutedEventArgs e)
-    {
-        var folder = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "选择输出目录",
-            AllowMultiple = false
-        });
-        var path = folder.FirstOrDefault()?.TryGetLocalPath();
-        if (path != null)
-            ViewModel.OutputDirectory = path;
-    }
 }
