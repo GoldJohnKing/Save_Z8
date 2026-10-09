@@ -11,21 +11,6 @@ class Diag
     [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl)]
     static extern IntPtr lr_version();
 
-    [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    static extern IntPtr lr_open(string path, out int err);
-
-    [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl)]
-    static extern int lr_get_width(IntPtr h);
-
-    [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl)]
-    static extern int lr_get_height(IntPtr h);
-
-    [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl)]
-    static extern IntPtr lr_get_raw_image(IntPtr h);
-
-    [DllImport("libraw_wrapper", CallingConvention = CallingConvention.Cdecl)]
-    static extern void lr_close(IntPtr h);
-
     static int Main(string[] args)
     {
         Console.WriteLine("=== Save Z8 Diagnostic ===");
@@ -87,6 +72,9 @@ class Diag
             var r = BlackLevelFixer.Fix(pixels, width, height,
                 black > 0 ? black : 1008);
             Console.WriteLine(r.Applied ? $"APPLIED ({r.PixelsFixed:N0} px)" : "SKIP (no notch)");
+            Console.WriteLine($"  thresholds=[{string.Join(",", r.Thresholds)}] " +
+                $"c1006=[{string.Join(",", r.Counts1006)}] c1007=[{string.Join(",", r.Counts1007)}] " +
+                $"c1008=[{string.Join(",", r.Counts1008)}]");
         }
         catch (Exception ex)
         {

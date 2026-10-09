@@ -1,6 +1,6 @@
-using System.Text;
 using SaveZ8.Core;
 using Xunit;
+using static SaveZ8.Tests.TestTiff;
 
 namespace SaveZ8.Tests;
 
@@ -21,39 +21,6 @@ public class DngPreviewTests : IDisposable
     public void Dispose()
     {
         try { Directory.Delete(_tmpDir, true); } catch { }
-    }
-
-    private sealed class ParsedIfd
-    {
-        public Dictionary<ushort, (ushort Type, uint Count, byte[] Value)> Tags = new();
-        public uint NextIfd;
-    }
-
-    private static ushort U16(byte[] b, int i) => (ushort)(b[i] | (b[i + 1] << 8));
-    private static uint U32(byte[] b, int i) => (uint)(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
-
-    private static ParsedIfd ParseIfd(byte[] file, uint offset)
-    {
-        var ifd = new ParsedIfd();
-        int count = U16(file, (int)offset);
-        for (int i = 0; i < count; i++)
-        {
-            long p = offset + 2 + i * 12L;
-            ushort tag = U16(file, (int)p);
-            ushort type = U16(file, (int)p + 2);
-            uint cnt = U32(file, (int)p + 4);
-            uint val = U32(file, (int)p + 8);
-            int typeSize = type switch { 1 or 2 or 6 or 7 => 1, 3 or 8 => 2, 4 or 9 or 11 or 13 => 4, 5 or 10 or 12 => 8, _ => 1 };
-            int size = typeSize * (int)cnt;
-            var data = new byte[Math.Max(size, 0)];
-            if (size <= 4)
-                for (int j = 0; j < size; j++) data[j] = (byte)(val >> (8 * j));
-            else
-                Array.Copy(file, val, data, 0, size);
-            ifd.Tags[tag] = (type, cnt, data);
-        }
-        ifd.NextIfd = U32(file, (int)(offset + 2 + count * 12L));
-        return ifd;
     }
 
     /// <summary>Minimal JPEG with SOF0 (w×h) plus an optional COM segment for padding.</summary>
@@ -174,54 +141,29 @@ public class DngPreviewTests : IDisposable
         int interopOff = cursor; cursor += 2 + 1 * 12 + 4;
         int gpsOff = cursor; cursor += 2 + 2 * 12 + 4;
 
-        void Entry(ushort tag, ushort type, uint count, uint val)
-        {
-            bw.Write(tag); bw.Write(type); bw.Write(count); bw.Write(val);
-        }
-
         // IFD0
         ms.Position = 8; bw.Write((ushort)ifd0Entries);
-        Entry(0x010F, 2, 8, (uint)makeOff);
-        Entry(274, 3, 1, orientation);                 // Orientation inline SHORT
-        Entry(0x0132, 2, 20, (uint)dtOff);
-        Entry(330, 4, 1, (uint)prevIfdOff);            // SubIFDs → preview IFD
-        Entry(513, 4, 1, (uint)thumbOff);              // IFD0 thumbnail
-        Entry(514, 4, 1, (uint)thumb.Length);
-        Entry(0x8769, 4, 1, (uint)exifOff);
-        Entry(0x8825, 4, 1, (uint)gpsOff);
+        Entry(bw, 0x010F, 2, 8, (uint)makeOff);
+        Entry(bw, 274, 3, 1, orientation);                 // Orientation inline SHORT
+        Entry(bw, 0x0132, 2, 20, (uint)dtOff);
+        Entry(bw, 330, 4, 1, (uint)prevIfdOff);            // SubIFDs → preview IFD
+        Entry(bw, 513, 4, 1, (uint)thumbOff);              // IFD0 thumbnail
+        Entry(bw, 514, 4, 1, (uint)thumb.Length);
+        Entry(bw, 0x8769, 4, 1, (uint)exifOff);
+        Entry(bw, 0x8825, 4, 1, (uint)gpsOff);
         bw.Write((uint)0);
 
-        ms.Position = makeOff; bw.Write(Encoding.ASCII.GetBytes("TestCam\0"));
-        ms.Position = dtOff; bw.Write(Encoding.ASCII.GetBytes("2026:01:01 00:00:00\0"));
+        WriteMakeDateTime(ms, bw, makeOff, dtOff);
         ms.Position = thumbOff; bw.Write(thumb);
 
         // preview SubIFD
         ms.Position = prevIfdOff; bw.Write((ushort)2);
-        Entry(513, 4, 1, (uint)bigOff);
-        Entry(514, 4, 1, (uint)big.Length);
+        Entry(bw, 513, 4, 1, (uint)bigOff);
+        Entry(bw, 514, 4, 1, (uint)big.Length);
         bw.Write((uint)0);
         ms.Position = bigOff; bw.Write(big);
 
-        // EXIF IFD
-        ms.Position = exifOff; bw.Write((ushort)4);
-        Entry(0x829A, 5, 1, (uint)expTimeOff);
-        Entry(0x8827, 3, 1, 64u);
-        Entry(0x9003, 2, 20, (uint)dtoOff);
-        Entry(0xA005, 4, 1, (uint)interopOff);
-        bw.Write((uint)0);
-        ms.Position = expTimeOff; bw.Write(1u); bw.Write(1000u);
-        ms.Position = dtoOff; bw.Write(Encoding.ASCII.GetBytes("2026:10:09 10:00:00\0"));
-
-        // Interop IFD
-        ms.Position = interopOff; bw.Write((ushort)1);
-        Entry(0x0001, 2, 4, 0x00383952u); // "R98\0"
-        bw.Write((uint)0);
-
-        // GPS IFD
-        ms.Position = gpsOff; bw.Write((ushort)2);
-        Entry(0x0000, 1, 4, 0x00000302u);
-        Entry(0x0001, 2, 2, 0x004Eu);
-        bw.Write((uint)0);
+        WriteExifInteropGps(ms, bw, exifOff, expTimeOff, dtoOff, interopOff, gpsOff);
 
         var buf = new byte[gpsOff + 2 + 2 * 12 + 4];
         Array.Copy(ms.ToArray(), buf, buf.Length);

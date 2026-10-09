@@ -1,9 +1,16 @@
+using System.Collections.Concurrent;
+
 namespace SaveZ8.Core;
 
 /// <summary>
 /// Implements the Z8 black-level −1 LSB fix using the notch criterion.
 /// The notch criterion (c1008 &lt; c1007/3) does not false-trigger on healthy frames
 /// whose analog black center is naturally below 1007.5 (e.g., ISO 100).
+///
+/// Both passes are parallelized over disjoint row bands (Partitioner over [0, height))
+/// with band-local integer accumulation; the quadrant decision runs once, sequentially,
+/// on the exact sums. All arithmetic is integral, so results are bit-identical to the
+/// previous single-threaded scalar implementation.
 /// </summary>
 public class BlackLevelFixer
 {
@@ -34,24 +41,20 @@ public class BlackLevelFixer
         int bl = blackLevel;
         int b0 = bl - 2, b1 = bl - 1, b2 = bl; // {1006, 1007, 1008}
 
-        // Pass 1: per-CFA-quadrant histogram
+        // Pass 1: per-CFA-quadrant histogram (row-band parallel, band-local counts
+        // merged by exact integer addition).
         var counts = new long[4, 3]; // [quadrant, {b0,b1,b2}]
-        fixed (ushort* p = pixels)
+        var gate = new object();
+
+        if (height > 0)
         {
-            for (int row = 0; row < height; row++)
+            Parallel.ForEach(Partitioner.Create(0, height), range =>
             {
-                ushort* rowPtr = p + (long)row * width;
-                int qRow = (row & 1) << 1;
-                for (int col = 0; col < width; col++)
-                {
-                    ushort v = rowPtr[col];
-                    if (v >= b0 && v <= b2)
-                    {
-                        int q = qRow | (col & 1);
-                        counts[q, v - b0]++;
-                    }
-                }
-            }
+                long[] local = CountBand(pixels, width, range.Item1, range.Item2, b0, b1, b2);
+                lock (gate)
+                    for (int i = 0; i < 12; i++)
+                        counts[i / 3, i % 3] += local[i];
+            });
         }
 
         // Decision: notch criterion per quadrant
@@ -70,47 +73,88 @@ public class BlackLevelFixer
             if (thresholds[q] > 0) anyFix = true;
         }
 
-        if (!anyFix)
-        {
-            return new FixResult
-            {
-                Applied = false,
-                Thresholds = thresholds,
-                Counts1006 = new[] { counts[0,0], counts[1,0], counts[2,0], counts[3,0] },
-                Counts1007 = new[] { counts[0,1], counts[1,1], counts[2,1], counts[3,1] },
-                Counts1008 = new[] { counts[0,2], counts[1,2], counts[2,2], counts[3,2] }
-            };
-        }
-
-        // Pass 2: apply fix
         long totalFixed = 0;
-        fixed (ushort* p = pixels)
+        if (anyFix && height > 0)
         {
-            for (int row = 0; row < height; row++)
+            // Pass 2: apply fix. A quadrant with threshold 0 must never be touched —
+            // int.MinValue is the "no fix" sentinel: `v <= sentinel` is false for every
+            // possible pixel value (including 0), replacing the old `t > 0 && v <= t`
+            // guard branchlessly.
+            var sentinels = new int[4];
+            for (int q = 0; q < 4; q++)
+                sentinels[q] = thresholds[q] > 0 ? thresholds[q] : int.MinValue;
+
+            Parallel.ForEach(Partitioner.Create(0, height), range =>
             {
-                ushort* rowPtr = p + (long)row * width;
-                int qRow = (row & 1) << 1;
-                for (int col = 0; col < width; col++)
-                {
-                    int q = qRow | (col & 1);
-                    int t = thresholds[q];
-                    if (t > 0 && rowPtr[col] <= t)
-                    {
-                        rowPtr[col]++;
-                        totalFixed++;
-                    }
-                }
-            }
+                long bandFixed = FixBand(pixels, width, range.Item1, range.Item2, sentinels);
+                Interlocked.Add(ref totalFixed, bandFixed);
+            });
         }
 
         return new FixResult
         {
-            Applied = true,
+            Applied = anyFix,
             PixelsFixed = totalFixed,
             Thresholds = thresholds,
             Counts1006 = new[] { counts[0,0], counts[1,0], counts[2,0], counts[3,0] },
             Counts1007 = new[] { counts[0,1], counts[1,1], counts[2,1], counts[3,1] },
             Counts1008 = new[] { counts[0,2], counts[1,2], counts[2,2], counts[3,2] }
         };
+    }
+
+    /// <summary>
+    /// Pass 1 over one row band: branchless per-pixel histogram into a flat
+    /// local[quadrant*3 + {0,1,2}] (the equality tests lower to setcc/cmov, removing
+    /// the data-dependent branch the range check used to take).
+    /// </summary>
+    private static unsafe long[] CountBand(ushort[] pixels, int width, int fromRow, int toRow,
+        int b0, int b1, int b2)
+    {
+        var local = new long[12];
+        fixed (ushort* p = pixels)
+        {
+            for (int row = fromRow; row < toRow; row++)
+            {
+                ushort* rowPtr = p + (long)row * width;
+                int qRow = (row & 1) << 1;
+                for (int col = 0; col < width; col++)
+                {
+                    int v = rowPtr[col];
+                    int qb = (qRow | (col & 1)) * 3;
+                    local[qb] += v == b0 ? 1 : 0;
+                    local[qb + 1] += v == b1 ? 1 : 0;
+                    local[qb + 2] += v == b2 ? 1 : 0;
+                }
+            }
+        }
+        return local;
+    }
+
+    /// <summary>
+    /// Pass 2 over one row band (bands are disjoint, so in-place writes are safe):
+    /// branchless conditional increment — add is 1 exactly when v ≤ sentinel.
+    /// </summary>
+    private static unsafe long FixBand(ushort[] pixels, int width, int fromRow, int toRow,
+        int[] sentinels)
+    {
+        long bandFixed = 0;
+        fixed (ushort* p = pixels)
+        {
+            for (int row = fromRow; row < toRow; row++)
+            {
+                ushort* rowPtr = p + (long)row * width;
+                int qRow = (row & 1) << 1;
+                int tvEven = sentinels[qRow];
+                int tvOdd = sentinels[qRow | 1];
+                for (int col = 0; col < width; col++)
+                {
+                    int tv = (col & 1) == 0 ? tvEven : tvOdd;
+                    int add = rowPtr[col] <= tv ? 1 : 0;
+                    rowPtr[col] += (ushort)add;
+                    bandFixed += add;
+                }
+            }
+        }
+        return bandFixed;
     }
 }

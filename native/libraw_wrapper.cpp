@@ -10,7 +10,7 @@ typedef struct {
     unsigned short *raw_image;
     int width, height;
     int black_level, white_level;
-    int colors, filters;
+    int filters;
 } lr_handle_t;
 
 #ifdef _WIN32
@@ -66,7 +66,6 @@ EXPORT void* lr_open(const char* filepath, int* error) {
 
     h->black_level = h->lr->imgdata.color.black;
     h->white_level = h->lr->imgdata.color.maximum;
-    h->colors = h->lr->imgdata.idata.colors;
     h->filters = h->lr->imgdata.idata.filters;
 
     return h;
@@ -90,10 +89,6 @@ EXPORT int lr_get_black_level(void* handle) {
 
 EXPORT int lr_get_white_level(void* handle) {
     return ((lr_handle_t*)handle)->white_level;
-}
-
-EXPORT int lr_get_filters(void* handle) {
-    return ((lr_handle_t*)handle)->filters;
 }
 
 EXPORT int lr_get_cam_mul(void* handle, float* out4) {

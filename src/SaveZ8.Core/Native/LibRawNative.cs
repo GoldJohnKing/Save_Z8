@@ -29,9 +29,6 @@ public static class LibRawNative
     private static extern int lr_get_white_level(IntPtr handle);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int lr_get_filters(IntPtr handle);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int lr_get_cfa_pattern(IntPtr handle, byte[] outPattern);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -39,9 +36,6 @@ public static class LibRawNative
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern void lr_close(IntPtr handle);
-
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr lr_version();
 
     public static string GetVersion() => "LibRaw (需要 libraw_wrapper.dll)";
 
@@ -108,10 +102,6 @@ public static class LibRawNative
 
     private static string LibRawErrorMessage(int code) => code switch
     {
-        -10000 => "文件不存在",
-        -10001 => "文件读取失败",
-        -10002 => "格式不支持",
-        -10003 => "文件损坏",
         -100009 => "RAW格式不支持(-100009)",
         -100010 => "请求不存在的图像",
         -100011 => "调用顺序错误",

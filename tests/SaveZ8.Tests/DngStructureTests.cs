@@ -1,6 +1,6 @@
-using System.Text;
 using SaveZ8.Core;
 using Xunit;
+using static SaveZ8.Tests.TestTiff;
 
 namespace SaveZ8.Tests;
 
@@ -23,49 +23,6 @@ public class DngStructureTests : IDisposable
         try { Directory.Delete(_tmpDir, true); } catch { }
     }
 
-    // ---------- helpers: minimal TIFF parser for verification ----------
-
-    private sealed class ParsedIfd
-    {
-        public Dictionary<ushort, (ushort Type, uint Count, byte[] Value)> Tags = new();
-    }
-
-    private static byte[] ReadValue(byte[] file, ushort type, uint count, uint valueOrOffset)
-    {
-        int typeSize = type switch { 1 or 2 or 6 or 7 => 1, 3 or 8 => 2, 4 or 9 or 11 or 13 => 4, 5 or 10 or 12 => 8, _ => 1 };
-        int size = typeSize * (int)count;
-        if (size <= 4)
-        {
-            // read from inline field (LSB-first, file is little-endian)
-            var b = new byte[size];
-            for (int i = 0; i < size; i++) b[i] = (byte)(valueOrOffset >> (8 * i));
-            return b;
-        }
-        var result = new byte[size];
-        Array.Copy(file, (long)valueOrOffset, result, 0, size);
-        return result;
-    }
-
-    private static ParsedIfd ParseIfd(byte[] file, uint offset)
-    {
-        var ifd = new ParsedIfd();
-        int count = file[offset] | (file[offset + 1] << 8);
-        for (int i = 0; i < count; i++)
-        {
-            long p = offset + 2 + i * 12L;
-            ushort tag = (ushort)(file[p] | (file[p + 1] << 8));
-            ushort type = (ushort)(file[p + 2] | (file[p + 3] << 8));
-            uint cnt = (uint)(file[p + 4] | (file[p + 5] << 8) | (file[p + 6] << 16) | (file[p + 7] << 24));
-            uint val = (uint)(file[p + 8] | (file[p + 9] << 8) | (file[p + 10] << 16) | (file[p + 11] << 24));
-            ifd.Tags[tag] = (type, cnt, ReadValue(file, type, cnt, val));
-        }
-        return ifd;
-    }
-
-    private static ushort U16(byte[] b, int i) => (ushort)(b[i] | (b[i + 1] << 8));
-    private static uint U32(byte[] b, int i) => (uint)(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
-    private static string Ascii(byte[] b) => Encoding.ASCII.GetString(b).TrimEnd('\0');
-
     // ---------- Test 1: core DNG structure (the Photoshop-fatal defects) ----------
 
     [Fact]
@@ -86,7 +43,7 @@ public class DngStructureTests : IDisposable
 
         // FATAL fix: StripOffsets must exist and point at pixel data
         Assert.True(ifd0.Tags.ContainsKey(273), "StripOffsets (273) missing — image data unreachable");
-        var (t273, c273, v273) = ifd0.Tags[273];
+        var (t273, _, v273) = ifd0.Tags[273];
         Assert.Equal(4u, t273);
         uint stripOff = U32(v273, 0);
 
@@ -186,43 +143,16 @@ public class DngStructureTests : IDisposable
         int interopOff = cursor; cursor += 2 + 1 * 12 + 4;
         int gpsOff = cursor; cursor += 2 + 2 * 12 + 4;
 
-        void Entry(ushort tag, ushort type, uint count, uint val)
-        {
-            bw.Write(tag); bw.Write(type); bw.Write(count); bw.Write(val);
-        }
-
         // IFD0
         ms.Position = 8; bw.Write((ushort)4);
-        Entry(0x010F, 2, 8, (uint)makeOff);
-        Entry(0x0132, 2, 20, (uint)dtOff);
-        Entry(0x8769, 4, 1, (uint)exifOff);
-        Entry(0x8825, 4, 1, (uint)gpsOff);
+        Entry(bw, 0x010F, 2, 8, (uint)makeOff);
+        Entry(bw, 0x0132, 2, 20, (uint)dtOff);
+        Entry(bw, 0x8769, 4, 1, (uint)exifOff);
+        Entry(bw, 0x8825, 4, 1, (uint)gpsOff);
         bw.Write((uint)0);
 
-        ms.Position = makeOff; bw.Write(Encoding.ASCII.GetBytes("TestCam\0"));
-        ms.Position = dtOff; bw.Write(Encoding.ASCII.GetBytes("2026:01:01 00:00:00\0"));
-
-        // EXIF IFD
-        ms.Position = exifOff; bw.Write((ushort)4);
-        Entry(0x829A, 5, 1, (uint)expTimeOff);
-        Entry(0x8827, 3, 1, 64u);                     // inline SHORT
-        Entry(0x9003, 2, 20, (uint)dtoOff);
-        Entry(0xA005, 4, 1, (uint)interopOff);
-        bw.Write((uint)0);
-
-        ms.Position = expTimeOff; bw.Write(1u); bw.Write(1000u);
-        ms.Position = dtoOff; bw.Write(Encoding.ASCII.GetBytes("2026:10:09 10:00:00\0"));
-
-        // Interop IFD: 1 entry, ASCII "R98\0" inline
-        ms.Position = interopOff; bw.Write((ushort)1);
-        Entry(0x0001, 2, 4, 0x00383952u); // 'R'(52) '9'(39) '8'(38) '\0' LSB-first
-        bw.Write((uint)0);
-
-        // GPS IFD
-        ms.Position = gpsOff; bw.Write((ushort)2);
-        Entry(0x0000, 1, 4, 0x00000302u);             // BYTE [2,3,0,0] inline
-        Entry(0x0001, 2, 2, 0x004Eu);                 // "N\0" inline
-        bw.Write((uint)0);
+        WriteMakeDateTime(ms, bw, makeOff, dtOff);
+        WriteExifInteropGps(ms, bw, exifOff, expTimeOff, dtoOff, interopOff, gpsOff);
 
         var buf = new byte[gpsOff + 2 + 2 * 12 + 4];
         Array.Copy(ms.ToArray(), buf, buf.Length);

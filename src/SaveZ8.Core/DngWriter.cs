@@ -65,21 +65,22 @@ public class DngWriter
     private const ushort TypeRational = 5;
     private const ushort TypeSRational = 10;
 
-    private static readonly int[] TypeSizes = { 0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8 };
+    // Rendering-parity constants (formerly the DngOptions class — no caller ever
+    // overrode any of them, so they are fixed private constants now).
+    private const int BlackLevelValue = 4032;              // 1008 * 4 (×4 domain)
+    private const int WhiteLevelValue = 63568;             // 15892 * 4 — Adobe's Z8 white level
+    private const int PixelBitShift = 2;                   // ×4 to expand 14-bit to 16-bit
+    private const string CameraModelName = "Nikon Z 8";
+    private const int CalibrationIlluminant1Value = 21;    // D65
+    private static readonly double[] ColorMatrix1Values =
+        { 1.1423, -0.4564, -0.1123, -0.4816, 1.2895, 0.2119, -0.021, 0.1061, 0.7282 };
 
     // IFD0 tags safe to copy verbatim from the source file (scalar/string/blobs only).
     private static readonly HashSet<ushort> CopyableIfd0Tags = new()
         { 270, 274, 282, 283, 296, 305, 306, 315, 700, 33432 };
 
-    public class DngOptions
-    {
-        public int BlackLevel { get; set; } = 4032;        // 1008 * 4 (×4 domain)
-        public int WhiteLevel { get; set; } = 63568;       // 15892 * 4 — Adobe's Z8 white level
-        public int BitShift { get; set; } = 2;             // ×4 to expand 14-bit to 16-bit
-        public string UniqueCameraModel { get; set; } = "Nikon Z 8";
-        public double[]? ColorMatrix1 { get; set; } = { 1.1423, -0.4564, -0.1123, -0.4816, 1.2895, 0.2119, -0.021, 0.1061, 0.7282 };
-        public int CalibrationIlluminant1 { get; set; } = 21; // D65
-    }
+    // Zero bytes for explicitly filling TIFF alignment gaps during serialization.
+    private static readonly byte[] AlignmentZeros = new byte[16];
 
     // ---------- output model ----------
 
@@ -98,23 +99,12 @@ public class DngWriter
     {
         public List<Entry> Entries { get; } = new();
         public uint Offset;             // assigned during layout
-        public IfdBlock? NextBlock;     // TIFF next-IFD chain
     }
 
     public static void Write(string outputPath, ushort[] pixels, int width, int height,
         byte[] cfaPattern, TiffIfdExtractor.ExtractedMetadata? originalMetadata,
-        DngOptions? options = null, float[]? cameraWb = null)
+        float[]? cameraWb = null)
     {
-        options ??= new DngOptions();
-
-        // 14-bit → 16-bit expansion
-        var shifted = new ushort[pixels.Length];
-        for (int i = 0; i < pixels.Length; i++)
-        {
-            int v = pixels[i] << options.BitShift;
-            shifted[i] = (ushort)Math.Min(v, 65535);
-        }
-
         // LibRaw CFA indices (0=R,1=G1,2=B,3=G2) → DNG CFAPattern colors (0=Red,1=Green,2=Blue)
         var dngCfa = new byte[4];
         for (int i = 0; i < 4; i++)
@@ -164,9 +154,9 @@ public class DngWriter
         RawShorts(TagCFARepeatPatternDim, new ushort[] { 2, 2 });
         rawBlock.Entries.Add(new Entry { Tag = TagCFAPattern, Type = TypeByte, Count = 4, Inline = Pad(dngCfa) });
         RawShorts(TagBlackLevelRepeatDim, new ushort[] { 2, 2 });
-        RawShorts(TagBlackLevel, new[] { (ushort)options.BlackLevel, (ushort)options.BlackLevel,
-                                         (ushort)options.BlackLevel, (ushort)options.BlackLevel });
-        RawLong(TagWhiteLevel, (uint)options.WhiteLevel);
+        RawShorts(TagBlackLevel, new[] { (ushort)BlackLevelValue, (ushort)BlackLevelValue,
+                                         (ushort)BlackLevelValue, (ushort)BlackLevelValue });
+        RawLong(TagWhiteLevel, (uint)WhiteLevelValue);
 
         // ActiveArea: full stored area — replicates ADC's Z8 geometry. The warp/vignette
         // opcodes normalize radius over the active area, so this must match ADC's
@@ -194,7 +184,7 @@ public class DngWriter
 
         // Strip data location — real entries, values resolved by the layout pass
         rawBlock.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
-        RawLong(TagStripByteCounts, (uint)(shifted.Length * 2));
+        RawLong(TagStripByteCounts, (uint)(pixels.Length * 2));
 
         // ---- lens correction opcodes from Nikon NEFInfo (0xC7D5) ----
         var correction = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
@@ -284,26 +274,23 @@ public class DngWriter
         }
 
         AddAscii(TagMake, "Nikon");
-        AddAscii(TagModel, options.UniqueCameraModel);
+        AddAscii(TagModel, CameraModelName);
 
         ifd0.Entries.Add(new Entry { Tag = TagDNGVersion, Type = TypeByte, Count = 4,
             Inline = Pad(new byte[] { 1, 6, 0, 0 }) });
         ifd0.Entries.Add(new Entry { Tag = TagDNGBackwardVersion, Type = TypeByte, Count = 4,
             Inline = Pad(new byte[] { 1, 4, 0, 0 }) });
-        AddAscii(TagUniqueCameraModel, options.UniqueCameraModel);
+        AddAscii(TagUniqueCameraModel, CameraModelName);
 
-        if (options.ColorMatrix1 != null)
+        var cm = new byte[ColorMatrix1Values.Length * 8];
+        for (int i = 0; i < ColorMatrix1Values.Length; i++)
         {
-            var cm = new byte[options.ColorMatrix1.Length * 8];
-            for (int i = 0; i < options.ColorMatrix1.Length; i++)
-            {
-                BitConverter.GetBytes((int)Math.Round(options.ColorMatrix1[i] * 10000)).CopyTo(cm, i * 8);
-                BitConverter.GetBytes(10000).CopyTo(cm, i * 8 + 4);
-            }
-            ifd0.Entries.Add(new Entry { Tag = TagColorMatrix1, Type = TypeSRational,
-                Count = (uint)options.ColorMatrix1.Length, Blob = cm });
+            BitConverter.GetBytes((int)Math.Round(ColorMatrix1Values[i] * 10000)).CopyTo(cm, i * 8);
+            BitConverter.GetBytes(10000).CopyTo(cm, i * 8 + 4);
         }
-        AddShort(TagCalibrationIlluminant1, (ushort)options.CalibrationIlluminant1);
+        ifd0.Entries.Add(new Entry { Tag = TagColorMatrix1, Type = TypeSRational,
+            Count = (uint)ColorMatrix1Values.Length, Blob = cm });
+        AddShort(TagCalibrationIlluminant1, (ushort)CalibrationIlluminant1Value);
 
         // Rendering parity with Adobe's Z8 defaults (measured from ADC 18.6 output)
         AddRationals(TagBaselineExposure, TypeSRational, new[] { (20, 100) });     // +0.20 EV
@@ -378,7 +365,6 @@ public class DngWriter
                     foreach (var sub in e.SubBlockList) pending.Add(sub);
                 }
             }
-            if (block.NextBlock != null) pending.Add(block.NextBlock);
         }
 
         // ---- layout phase 2: SubIFD pointer arrays appended after all blocks ----
@@ -401,14 +387,14 @@ public class DngWriter
                 if (e.IsPixelData) e.Inline = BitConverter.GetBytes(pixelOffset);
                 else if (e.SubBlock != null) e.Inline = BitConverter.GetBytes(e.SubBlock.Offset);
 
-        // ---- serialize ----
-        using var ms = new MemoryStream((int)(pixelOffset + shifted.Length * 2L));
-        var bw = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
+        // ---- serialize: single pass directly to file (no full-image intermediate copies) ----
+        using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var bw = new BinaryWriter(fs, Encoding.ASCII, leaveOpen: true);
         bw.Write((byte)0x49); bw.Write((byte)0x49); bw.Write((ushort)42); bw.Write((uint)8);
 
         foreach (var block in orderedBlocks)
         {
-            ms.Position = block.Offset;
+            fs.Position = block.Offset;
             bw.Write((ushort)block.Entries.Count);
             foreach (var e in block.Entries)
             {
@@ -417,20 +403,35 @@ public class DngWriter
                 if (e.Inline != null) Array.Copy(e.Inline, inline, Math.Min(4, e.Inline.Length));
                 bw.Write(inline);
             }
-            bw.Write(block.NextBlock != null ? block.NextBlock.Offset : 0u); // next IFD
+            bw.Write(0u); // next IFD: none (IFD chains are modeled as SubIFDs)
             foreach (var e in block.Entries)
                 if (e.Blob != null && e.SubBlockList == null)
-                { ms.Position = Align((uint)ms.Position, 4); bw.Write(e.Blob); }
+                    WriteBlob4Aligned(bw, fs, e.Blob);
         }
         foreach (var e in multiPointers)
-        { ms.Position = Align((uint)ms.Position, 4); bw.Write(e.Blob!); }
+            WriteBlob4Aligned(bw, fs, e.Blob!);
 
-        var pixelBytes = new byte[shifted.Length * 2];
-        Buffer.BlockCopy(shifted, 0, pixelBytes, 0, pixelBytes.Length);
-        ms.Position = pixelOffset;
-        bw.Write(pixelBytes);
-
-        File.WriteAllBytes(outputPath, ms.ToArray());
+        // Pixel data: 14-bit → 16-bit expansion (×4, clamped to u16) streamed straight
+        // to the file in bounded 128 KB chunks — replaces the previous three full-image
+        // copies (shifted array + pixelBytes + MemoryStream snapshot).
+        long pos = fs.Position;
+        if (pos < pixelOffset) bw.Write(AlignmentZeros, 0, (int)(pixelOffset - pos));
+        else fs.Position = pixelOffset;
+        const int ChunkPixels = 1 << 16;
+        var chunk = new byte[ChunkPixels * 2];
+        for (int i = 0; i < pixels.Length; i += ChunkPixels)
+        {
+            int n = Math.Min(ChunkPixels, pixels.Length - i);
+            var src = pixels.AsSpan(i, n);
+            int off = 0;
+            for (int k = 0; k < src.Length; k++)
+            {
+                ushort v = (ushort)Math.Min(src[k] << PixelBitShift, 65535);
+                chunk[off++] = (byte)v;
+                chunk[off++] = (byte)(v >> 8);
+            }
+            bw.Write(chunk, 0, n * 2);
+        }
     }
 
     // ---------- metadata relocation helpers ----------
@@ -479,7 +480,7 @@ public class DngWriter
     /// <summary>Copies one source entry, converting byte order when the source is big-endian.</summary>
     private static void CopyEntry(IfdBlock target, TiffIfdExtractor.TiffEntry e, bool srcLE)
     {
-        int typeSize = e.Type < TypeSizes.Length ? TypeSizes[e.Type] : 1;
+        int typeSize = TiffConstants.SizeOfType(e.Type);
         long size = (long)typeSize * e.Count;
 
         if (size <= 4)
@@ -504,13 +505,24 @@ public class DngWriter
     private static byte[] ConvertByteOrder(byte[] data, ushort type, bool srcLE)
     {
         if (srcLE) return data;
-        int es = type < TypeSizes.Length ? TypeSizes[type] : 1;
+        int es = TiffConstants.SizeOfType(type);
         if (es <= 1 || data.Length % es != 0) return data;
         var r = new byte[data.Length];
         for (int i = 0; i + es <= data.Length; i += es)
             for (int j = 0; j < es; j++)
                 r[i + j] = data[i + es - 1 - j];
         return r;
+    }
+
+    /// <summary>Writes a blob at the next 4-byte boundary, explicitly zero-filling the
+    /// ≤3-byte alignment gap so the emitted bytes are identical to the previous
+    /// MemoryStream-based layout (which zero-filled seek gaps implicitly).</summary>
+    private static void WriteBlob4Aligned(BinaryWriter bw, FileStream fs, byte[] blob)
+    {
+        long pos = fs.Position;
+        int pad = (int)(((pos + 3) & ~3L) - pos);
+        if (pad > 0) bw.Write(AlignmentZeros, 0, pad);
+        bw.Write(blob);
     }
 
     private static byte[] Pad(byte[] b)
