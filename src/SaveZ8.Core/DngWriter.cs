@@ -7,8 +7,9 @@ namespace SaveZ8.Core;
 
 /// <summary>
 /// Writes uncompressed 16-bit DNG files with original metadata preserved.
-/// Layout: TIFF header → IFD0 (+ external blobs) → EXIF IFD (+ Interop) → GPS IFD → pixel data.
-/// Reference implementation: JO.html convert_to_dng (verified against Photoshop/ACR).
+/// Layout: TIFF header → IFD0 (raw, + external blobs) → preview SubIFDs → EXIF IFD
+/// (+ Interop) → GPS IFD → IFD1 (thumbnail chain) → pointer arrays → pixel data.
+/// Reference: JO.html convert_to_dng (core tags) + Adobe DNG spec 1.6 (previews, crops).
 /// </summary>
 public class DngWriter
 {
@@ -26,8 +27,11 @@ public class DngWriter
     private const ushort TagRowsPerStrip = 278;
     private const ushort TagStripByteCounts = 279;
     private const ushort TagPlanarConfiguration = 284;
+    private const ushort TagJpegInterchangeFormat = 513;
+    private const ushort TagJpegInterchangeFormatLength = 514;
     private const ushort TagCFARepeatPatternDim = 33421;
     private const ushort TagCFAPattern = 33422;
+    private const ushort TagSubIFDs = 0x014A;
     private const ushort TagDNGVersion = 50706;
     private const ushort TagDNGBackwardVersion = 50707;
     private const ushort TagUniqueCameraModel = 50708;
@@ -36,6 +40,8 @@ public class DngWriter
     private const ushort TagWhiteLevel = 50717;
     private const ushort TagColorMatrix1 = 50721;
     private const ushort TagCalibrationIlluminant1 = 50778;
+    private const ushort TagDefaultCropOrigin = 50819;
+    private const ushort TagDefaultCropSize = 50820;
     private const ushort TagExifIFD = 0x8769;
     private const ushort TagGpsIFD = 0x8825;
 
@@ -49,9 +55,10 @@ public class DngWriter
 
     private static readonly int[] TypeSizes = { 0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8 };
 
-    // IFD0 tags safe to copy verbatim from the source file (scalar/string only).
-    // Strip/SubIFD/preview machinery is deliberately excluded.
-    private static readonly HashSet<ushort> CopyableIfd0Tags = new() { 270, 305, 306, 315, 33432 };
+    // IFD0 tags safe to copy verbatim from the source file (scalar/string/blobs only).
+    // Strip/SubIFD/preview machinery is deliberately excluded (rebuilt from Previews).
+    private static readonly HashSet<ushort> CopyableIfd0Tags = new()
+        { 270, 274, 282, 283, 296, 305, 306, 315, 700, 33432 };
 
     public class DngOptions
     {
@@ -61,6 +68,9 @@ public class DngWriter
         public string UniqueCameraModel { get; set; } = "Nikon Z 8";
         public double[]? ColorMatrix1 { get; set; } = { 1.1423, -0.4564, -0.1123, -0.4816, 1.2895, 0.2119, -0.021, 0.1061, 0.7282 };
         public int CalibrationIlluminant1 { get; set; } = 21; // D65
+        /// <summary>Write DefaultCropOrigin/Size derived from the largest embedded
+        /// preview (active area), origin centered and CFA-phase-even. Default true.</summary>
+        public bool AutoDefaultCrop { get; set; } = true;
     }
 
     // ---------- output model ----------
@@ -70,15 +80,17 @@ public class DngWriter
         public ushort Tag, Type;
         public uint Count;
         public byte[]? Inline;      // ≤4 bytes, little-endian, final
-        public byte[]? Blob;        // >4 bytes, little-endian, final
+        public byte[]? Blob;        // >4 bytes, little-endian, final (Inline gets blob offset)
         public IfdBlock? SubBlock;  // tag value = offset of this block
+        public List<IfdBlock>? SubBlockList; // tag value = offset of uint[] array (SubIFDs)
         public bool IsPixelData;    // tag value = pixel data offset
     }
 
     private sealed class IfdBlock
     {
         public List<Entry> Entries { get; } = new();
-        public uint Offset;         // assigned during layout
+        public uint Offset;             // assigned during layout
+        public IfdBlock? NextBlock;     // TIFF next-IFD chain (IFD1 thumbnail)
     }
 
     public static void Write(string outputPath, ushort[] pixels, int width, int height,
@@ -99,13 +111,13 @@ public class DngWriter
         for (int i = 0; i < 4; i++)
             dngCfa[i] = cfaPattern[i] switch { 0 => 0, 2 => 2, _ => 1 };
 
-        // ---- build IFD blocks ----
+        // ---- build IFD0 (raw) ----
         var ifd0 = new IfdBlock();
 
         void AddShort(ushort tag, ushort value) =>
             ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeShort, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
         void AddLong(ushort tag, uint value) =>
-            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = 1, Inline = BitConverter.GetBytes(value) });
+            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
         void AddAscii(ushort tag, string value)
         {
             var bytes = Encoding.ASCII.GetBytes(value + "\0");
@@ -127,6 +139,12 @@ public class DngWriter
                 ? new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Inline = Pad(bytes) }
                 : new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Blob = bytes });
         }
+        void AddLongs(ushort tag, uint[] values)
+        {
+            var bytes = new byte[values.Length * 4];
+            for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 4);
+            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = (uint)values.Length, Blob = bytes });
+        }
 
         AddLong(TagNewSubfileType, 0);
         AddLong(TagImageWidth, (uint)width);
@@ -147,7 +165,6 @@ public class DngWriter
         AddBytes(TagDNGBackwardVersion, new byte[] { 1, 4, 0, 0 });
         AddAscii(TagUniqueCameraModel, options.UniqueCameraModel);
 
-        // BlackLevel: count must equal BlackLevelRepeatDim rows × cols (DNG spec)
         AddShorts(TagBlackLevelRepeatDim, new ushort[] { 2, 2 });
         AddShorts(TagBlackLevel, new[] { (ushort)options.BlackLevel, (ushort)options.BlackLevel,
                                          (ushort)options.BlackLevel, (ushort)options.BlackLevel });
@@ -169,6 +186,68 @@ public class DngWriter
         // Strip data location — real entries, values resolved by the layout pass
         ifd0.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
         AddLong(TagStripByteCounts, (uint)(shifted.Length * 2));
+
+        // Default crop: active area derived from the largest embedded preview (Z8: 8256×5504
+        // vs raw 8280×5520 including masked borders). Origin centered, rounded to even (CFA-safe).
+        var previews = originalMetadata?.Previews;
+        if (options.AutoDefaultCrop && previews is { Count: > 0 })
+        {
+            var active = previews[^1];
+            if (active.Width <= width && active.Height <= height && (active.Width < width || active.Height < height))
+            {
+                uint ox = (uint)(((width - active.Width) / 2) & ~1);
+                uint oy = (uint)(((height - active.Height) / 2) & ~1);
+                AddLongs(TagDefaultCropOrigin, new[] { ox, oy });
+                AddLongs(TagDefaultCropSize, new[] { (uint)active.Width, (uint)active.Height });
+            }
+        }
+
+        // ---- preview IFDs (SubIFDs belt) + IFD1 thumbnail (WIC/Explorer braces) ----
+        IfdBlock? thumbBlock = null;
+        var previewBlocks = new List<IfdBlock>();
+        if (previews is { Count: > 0 })
+        {
+            // SubIFD previews: all but the smallest; IFD1 chain: the smallest (thumbnail)
+            foreach (var p in previews)
+            {
+                var block = new IfdBlock();
+                block.Entries.Add(new Entry { Tag = TagNewSubfileType, Type = TypeLong, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes(1u)) });
+                block.Entries.Add(new Entry { Tag = TagImageWidth, Type = TypeLong, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((uint)p.Width)) });
+                block.Entries.Add(new Entry { Tag = TagImageLength, Type = TypeLong, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
+                block.Entries.Add(new Entry { Tag = TagBitsPerSample, Type = TypeShort, Count = 3,
+                    Blob = new byte[] { 8, 0, 8, 0, 8, 0 } });
+                block.Entries.Add(new Entry { Tag = TagCompression, Type = TypeShort, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((ushort)6)) });          // old-style JPEG
+                block.Entries.Add(new Entry { Tag = TagPhotometricInterpretation, Type = TypeShort, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((ushort)2)) });          // RGB
+                block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormat, Type = TypeLong, Count = 1,
+                    Blob = p.Jpeg });                                            // value = jpeg offset
+                block.Entries.Add(new Entry { Tag = TagSamplesPerPixel, Type = TypeShort, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((ushort)3)) });
+                block.Entries.Add(new Entry { Tag = TagRowsPerStrip, Type = TypeLong, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
+                block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormatLength, Type = TypeLong, Count = 1,
+                    Inline = Pad(BitConverter.GetBytes((uint)p.Jpeg.Length)) });
+                previewBlocks.Add(block);
+            }
+            thumbBlock = previewBlocks[0];                       // smallest → IFD1 chain
+            var subPreviews = previewBlocks.Skip(1).ToList();    // rest → SubIFDs
+            if (subPreviews.Count == 1)
+            {
+                // TIFF rule: count=1 LONG (4 bytes) must be inline — use single-pointer entry
+                ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong, Count = 1,
+                    SubBlock = subPreviews[0] });
+            }
+            else if (subPreviews.Count > 1)
+            {
+                ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong,
+                    Count = (uint)subPreviews.Count, SubBlockList = subPreviews });
+            }
+            ifd0.NextBlock = thumbBlock;
+        }
 
         // ---- preserve original metadata (EXIF → Interop, GPS, safe IFD0 tags) ----
         IfdBlock? exifBlock = null, gpsBlock = null;
@@ -193,10 +272,11 @@ public class DngWriter
 
         ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
 
-        // ---- layout pass: assign offsets to IFD blocks, blobs, pixel data (BFS order) ----
+        // ---- layout phase 1: BFS over blocks, assign IFD offsets and plain blobs ----
         uint cursor = 8;
         var pending = new List<IfdBlock> { ifd0 };
         var orderedBlocks = new List<IfdBlock>();
+        var multiPointers = new List<Entry>();
         while (pending.Count > 0)
         {
             var block = pending[0]; pending.RemoveAt(0);
@@ -206,13 +286,37 @@ public class DngWriter
             cursor += (uint)(2 + block.Entries.Count * 12 + 4);
             foreach (var e in block.Entries)
             {
-                if (e.Blob != null) { cursor = Align(cursor, 4); e.Inline = BitConverter.GetBytes(cursor); cursor += (uint)e.Blob.Length; }
+                if (e.Blob != null && e.SubBlockList == null)
+                {
+                    cursor = Align(cursor, 4);
+                    e.Inline = BitConverter.GetBytes(cursor);
+                    cursor += (uint)e.Blob.Length;
+                }
                 if (e.SubBlock != null) pending.Add(e.SubBlock);
+                if (e.SubBlockList != null)
+                {
+                    multiPointers.Add(e);
+                    foreach (var sub in e.SubBlockList) pending.Add(sub);
+                }
             }
+            if (block.NextBlock != null) pending.Add(block.NextBlock); // IFD1 chain (thumbnail)
         }
+
+        // ---- layout phase 2: SubIFD pointer arrays appended after all blocks ----
+        foreach (var e in multiPointers)
+        {
+            var arr = new byte[e.SubBlockList!.Count * 4];
+            for (int i = 0; i < e.SubBlockList.Count; i++)
+                BitConverter.GetBytes(e.SubBlockList[i].Offset).CopyTo(arr, i * 4);
+            e.Blob = arr;
+            cursor = Align(cursor, 4);
+            e.Inline = BitConverter.GetBytes(cursor);
+            cursor += (uint)arr.Length;
+        }
+
         uint pixelOffset = Align(cursor, 16);
 
-        // Resolve pointer-valued entries now that all offsets are known
+        // ---- layout phase 3: resolve pointer-valued entries ----
         foreach (var block in orderedBlocks)
             foreach (var e in block.Entries)
                 if (e.IsPixelData) e.Inline = BitConverter.GetBytes(pixelOffset);
@@ -234,10 +338,13 @@ public class DngWriter
                 if (e.Inline != null) Array.Copy(e.Inline, inline, Math.Min(4, e.Inline.Length));
                 bw.Write(inline);
             }
-            bw.Write((uint)0); // next IFD
+            bw.Write(block.NextBlock != null ? block.NextBlock.Offset : 0u); // next IFD
             foreach (var e in block.Entries)
-                if (e.Blob != null) { ms.Position = Align((uint)ms.Position, 4); bw.Write(e.Blob); }
+                if (e.Blob != null && e.SubBlockList == null)
+                { ms.Position = Align((uint)ms.Position, 4); bw.Write(e.Blob); }
         }
+        foreach (var e in multiPointers)
+        { ms.Position = Align((uint)ms.Position, 4); bw.Write(e.Blob!); }
 
         var pixelBytes = new byte[shifted.Length * 2];
         Buffer.BlockCopy(shifted, 0, pixelBytes, 0, pixelBytes.Length);

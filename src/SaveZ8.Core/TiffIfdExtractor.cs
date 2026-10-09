@@ -33,6 +33,21 @@ public class TiffIfdExtractor
         public bool IsLittleEndian { get; init; }
         public List<TiffIfd> AllIfds { get; } = new();
         public Dictionary<string, string> CommonExif { get; } = new();
+
+        /// <summary>Embedded JPEG previews found across all IFDs, smallest first.</summary>
+        public List<PreviewInfo> Previews { get; } = new();
+
+        /// <summary>NEFInfo blob (SubIFD tag 0xC7D5): Nikon Z lens correction data
+        /// (self-contained "Nikon\0" TIFF: block 5 = distortion, block 6 = vignette).</summary>
+        public byte[]? NefInfoData { get; internal set; }
+    }
+
+    public class PreviewInfo
+    {
+        public byte[] Jpeg { get; init; } = Array.Empty<byte>();
+        public int Width { get; init; }
+        public int Height { get; init; }
+        public long Length => Jpeg.Length;
     }
 
     // TIFF type sizes
@@ -63,6 +78,20 @@ public class TiffIfdExtractor
         var visited = new HashSet<uint>();
 
         var ifd0 = ParseIfd(data, ifd0Offset, le, visited, result.AllIfds, depth: 0);
+
+        // Extract embedded JPEG previews (IFD0 thumbnail + SubIFD full/medium previews)
+        ExtractPreviews(result);
+
+        // Extract Nikon Z lens correction blob (SubIFD tag 0xC7D5 in the raw SubIFD)
+        foreach (var ifd in result.AllIfds)
+        {
+            var ne = ifd.Entries.Find(e => e.Tag == 0xC7D5);
+            if (ne?.Data is { Length: > 16 })
+            {
+                result.NefInfoData = ne.Data;
+                break;
+            }
+        }
 
         // Extract common EXIF values for display
         ExtractCommonValues(result);
@@ -108,7 +137,22 @@ public class TiffIfdExtractor
             ifd.Entries.Add(entry);
 
             // Follow SubIFD pointers
-            if (tag == 0x8769 || tag == 0x8825 || tag == 0xA005 || tag == 0x014A) // EXIF, GPS, Interop, SubIFDs
+            if (tag == 0x014A && count > 1)
+            {
+                // SubIFDs array: valueOrOffset points to count uint32 IFD offsets
+                long arrayEnd = (long)valueOrOffset + count * 4;
+                if (valueOrOffset > 0 && arrayEnd <= data.Length)
+                {
+                    for (uint k = 0; k < count; k++)
+                    {
+                        uint subOff = le ? ReadUInt32(data, valueOrOffset + k * 4)
+                                         : ReadUInt32BE(data, valueOrOffset + k * 4);
+                        if (subOff > 0 && subOff < data.Length)
+                            ifd.SubIfds.Add(ParseIfd(data, subOff, le, visited, allIfds, depth + 1));
+                    }
+                }
+            }
+            else if (tag == 0x8769 || tag == 0x8825 || tag == 0xA005 || tag == 0x014A) // EXIF, GPS, Interop, single SubIFD
             {
                 if (valueOrOffset > 0 && valueOrOffset < data.Length)
                 {
@@ -126,6 +170,50 @@ public class TiffIfdExtractor
         }
 
         return ifd;
+    }
+
+    private static void ExtractPreviews(ExtractedMetadata meta)
+    {
+        var data = meta.OriginalFile;
+        foreach (var ifd in meta.AllIfds)
+        {
+            var e513 = ifd.Entries.Find(e => e.Tag == 513);  // JPEGInterchangeFormat
+            var e514 = ifd.Entries.Find(e => e.Tag == 514);  // JPEGInterchangeFormatLength
+            if (e513 == null || e514 == null) continue;
+
+            // Both are inline LONG values in a well-formed preview IFD
+            long off = e513.ValueOrOffset, len = e514.ValueOrOffset;
+            if (off <= 0 || len < 4 || off + len > data.Length) continue;
+
+            var jpeg = new byte[len];
+            Array.Copy(data, off, jpeg, 0, (int)len);
+            if (jpeg[0] != 0xFF || jpeg[1] != 0xD8 || jpeg[len - 2] != 0xFF || jpeg[len - 1] != 0xD9)
+                continue; // not a complete SOI..EOI JPEG
+
+            var (w, h) = ParseJpegSof(jpeg);
+            if (w <= 0 || h <= 0) continue;
+            meta.Previews.Add(new PreviewInfo { Jpeg = jpeg, Width = w, Height = h });
+        }
+        meta.Previews.Sort((a, b) => a.Length.CompareTo(b.Length));
+    }
+
+    /// <summary>Parses SOF0/SOF1/SOF2 for pixel dimensions from a baseline JPEG stream.</summary>
+    internal static (int Width, int Height) ParseJpegSof(byte[] jpeg)
+    {
+        int i = 2; // skip SOI
+        while (i + 9 < jpeg.Length)
+        {
+            if (jpeg[i] != 0xFF) { i++; continue; }
+            byte marker = jpeg[i + 1];
+            if (marker is 0xD8 or 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+            if (marker is 0xC0 or 0xC1 or 0xC2) // baseline/extended/progressive SOF
+                return (jpeg[i + 7] << 8 | jpeg[i + 8], jpeg[i + 5] << 8 | jpeg[i + 6]);
+            if (marker is 0xDA or 0xD9) break; // SOS/EOI before SOF — no dims
+            int segLen = jpeg[i + 2] << 8 | jpeg[i + 3];
+            if (segLen < 2) break;
+            i += 2 + segLen;
+        }
+        return (0, 0);
     }
 
     private static void ExtractCommonValues(ExtractedMetadata meta)
