@@ -1,117 +1,573 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SaveZ8.UI.ViewModels"
+        xmlns:c="using:Avalonia.Data.Converters"
         x:Class="SaveZ8.UI.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="Save Z8 — 尼康 Z8/Z9 黑位修复工具"
-        Width="900" Height="650"
-        MinWidth="700" MinHeight="500"
-        WindowStartupLocation="CenterScreen">
+        Title="Save Z8 — 尼康 Z8/Z9 黑位修复"
+        Width="960" Height="640"
+        MinWidth="760" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource SemiColorBackground0}">
 
     <Design.DataContext>
         <vm:MainViewModel />
     </Design.DataContext>
 
+    <Window.Resources>
+        <!-- Feather-style line icons (MIT), stroke rendered at usage site -->
+        <StreamGeometry x:Key="Icon.Moon">M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z</StreamGeometry>
+        <StreamGeometry x:Key="Icon.Sun">M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42</StreamGeometry>
+        <StreamGeometry x:Key="Icon.FolderPlus">M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6</StreamGeometry>
+        <StreamGeometry x:Key="Icon.Trash">M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6</StreamGeometry>
+        <StreamGeometry x:Key="Icon.Zap">M13 2 3 14h9l-1 8 10-12h-9l1-8z</StreamGeometry>
+        <StreamGeometry x:Key="Icon.Aperture">M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94</StreamGeometry>
+        <StreamGeometry x:Key="Icon.Close">M18 6 6 18M6 6l12 12</StreamGeometry>
+        <StreamGeometry x:Key="Icon.External">M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3</StreamGeometry>
+    </Window.Resources>
+
     <Window.Styles>
-        <!-- Hyperlink-style button for the "已修复" status -->
-        <Style Selector="Button.link">
+        <!-- ============ 基础 ============ -->
+        <Style Selector="Path.icon">
+            <Setter Property="Stroke" Value="{DynamicResource SemiColorText2}" />
+            <Setter Property="StrokeThickness" Value="1.7" />
+        </Style>
+        <Style Selector="Path.icon-white">
+            <Setter Property="Stroke" Value="White" />
+            <Setter Property="StrokeThickness" Value="1.8" />
+        </Style>
+        <Style Selector="TextBlock.label-dim">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorText3}" />
+        </Style>
+
+        <!-- ============ 顶栏图标按钮（主题切换等）============ -->
+        <Style Selector="Button.icon-btn">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="12,0,0,0" />
-            <Setter Property="MinWidth" Value="120" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="SteelBlue" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="MinWidth" Value="32" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
-        <Style Selector="Button.link:pointerover /template/ ContentPresenter">
-            <Setter Property="Foreground" Value="DodgerBlue" />
+        <Style Selector="Button.icon-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorFill1}" />
+        </Style>
+        <Style Selector="Button.icon-btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorFill2}" />
+        </Style>
+
+        <!-- ============ 状态胶囊 ============ -->
+        <Style Selector="Border.pill">
+            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="Padding" Value="10,2" />
+            <Setter Property="MinHeight" Value="24" />
+        </Style>
+        <Style Selector="Ellipse.dot">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Height" Value="6" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- 处理中：呼吸圆点 -->
+        <Style Selector="Ellipse.dot-pulse">
+            <Style.Animations>
+                <Animation Duration="0:0:1.1" IterationCount="Infinite">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+                    <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <!-- 「已修复」= 可点击胶囊按钮，点击在资源管理器中定位 DNG -->
+        <Style Selector="Button.pill-success">
+            <Setter Property="Background" Value="{DynamicResource SemiColorSuccessLight}" />
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorSuccess}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="10,2" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.pill-success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorSuccessLightPointerover}" />
+        </Style>
+
+        <!-- ============ 文件行 ============ -->
+        <Style Selector="Border.row">
+            <Setter Property="Height" Value="46" />
             <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SemiColorFill0}" />
+        </Style>
+        <Style Selector="Border.row.selected">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground2}" />
+        </Style>
+
+        <!-- ============ 空态拖放区 ============ -->
+        <Style Selector="Border.empty-zone">
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground1}" />
+            <Setter Property="CornerRadius" Value="16" />
+        </Style>
+        <Style Selector="Border.empty-zone.ov">
+            <Setter Property="Background" Value="{DynamicResource SemiColorPrimaryLight}" />
+        </Style>
+        <Style Selector="Rectangle.empty-stroke">
+            <Setter Property="Stroke" Value="{DynamicResource SemiColorText3}" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="StrokeDashArray" Value="5,4" />
+            <Setter Property="Fill" Value="Transparent" />
+        </Style>
+        <Style Selector="Rectangle.empty-stroke.ov">
+            <Setter Property="Stroke" Value="{DynamicResource SemiColorPrimary}" />
+            <Setter Property="StrokeThickness" Value="2" />
+        </Style>
+
+        <!-- ============ 详情面板：入场微动效 ============ -->
+        <Style Selector="ContentControl.detail-host Border.detail-card">
+            <Style.Animations>
+                <Animation Duration="0:0:0.18" FillMode="Forward">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="Opacity" Value="0" />
+                        <Setter Property="TranslateTransform.X" Value="14" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="Opacity" Value="1" />
+                        <Setter Property="TranslateTransform.X" Value="0" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+        <Style Selector="Button.btn-danger-text">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource SemiColorDanger}" />
+        </Style>
+        <Style Selector="Button.btn-danger-text:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemiColorDangerLight}" />
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <Panel>
+        <Grid RowDefinitions="Auto,*,Auto" Margin="20,14,20,14">
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
-            <TextBlock Text="🚑" FontSize="32" VerticalAlignment="Center" />
-            <StackPanel>
-                <TextBlock Text="Save Z8" FontSize="24" FontWeight="Bold" />
-                <TextBlock Text="尼康 Z8/Z9 ISO 64 黑位 −1 LSB 缺陷批量修复"
-                           FontSize="12" Foreground="Gray" />
-            </StackPanel>
-        </StackPanel>
+            <!-- ================= 顶栏 ================= -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                    <Border Width="38" Height="38" CornerRadius="10" VerticalAlignment="Center">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                                <GradientStop Color="#2990FF" Offset="0.0" />
+                                <GradientStop Color="#135CB8" Offset="1.0" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <Viewbox Width="21" Height="21">
+                            <Path Data="{StaticResource Icon.Aperture}"
+                                  Stroke="White" StrokeThickness="1.6" />
+                        </Viewbox>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="Save Z8" FontSize="19" FontWeight="Bold"
+                                   Foreground="{DynamicResource SemiColorText0}" />
+                        <TextBlock Text="尼康 Z8/Z9 黑位缺陷批量修复 · 输出 Adobe DNG"
+                                   FontSize="12" Foreground="{DynamicResource SemiColorText2}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding LibRawVersion, StringFormat='LibRaw {0}'}"
+                               IsVisible="{Binding LibRawVersion, Converter={x:Static c:StringConverters.IsNotNullOrEmpty}}"
+                               FontSize="11" Foreground="{DynamicResource SemiColorText3}"
+                               VerticalAlignment="Center" Margin="0,0,2,0" />
+                    <Button x:Name="ThemeButton" Classes="icon-btn" Click="OnThemeToggle" ToolTip.Tip="切换到浅色主题">
+                        <Panel Width="16" Height="16">
+                            <Path x:Name="ThemeMoonIcon" Data="{StaticResource Icon.Moon}"
+                                  Fill="{DynamicResource SemiColorText1}" Stretch="Uniform" />
+                            <Path x:Name="ThemeSunIcon" Data="{StaticResource Icon.Sun}"
+                                  Stroke="{DynamicResource SemiColorText1}" StrokeThickness="2"
+                                  Stretch="Uniform" IsVisible="False" />
+                        </Panel>
+                    </Button>
+                </StackPanel>
+            </Grid>
 
-        <!-- File List -->
-        <Grid Grid.Row="1" RowDefinitions="*,Auto">
-            <Border Grid.Row="0" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
-                <Grid RowDefinitions="Auto,*">
-                    <!-- Column headers -->
-                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto"
-                          Background="#2A2A2A" Margin="8,6">
-                        <TextBlock Grid.Column="0" Text="文件名" FontSize="12" FontWeight="Bold" />
-                        <TextBlock Grid.Column="1" Text="状态" FontSize="12" FontWeight="Bold"
-                                   Margin="12,0,0,0" MinWidth="120" />
-                        <TextBlock Grid.Column="2" Text="修复像素" FontSize="12" FontWeight="Bold"
-                                   Margin="12,0,0,0" MinWidth="80" TextAlignment="Right" />
-                    </Grid>
+            <!-- ================= 主区域 ================= -->
+            <Grid Grid.Row="1">
 
-                    <ScrollViewer Grid.Row="1">
-                        <ItemsControl ItemsSource="{Binding Files}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:FileItemViewModel">
-                                    <Border Padding="8,4" BorderBrush="#222" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="*,Auto,Auto">
-                                            <TextBlock Grid.Column="0" Text="{Binding FileName}"
-                                                       VerticalAlignment="Center" FontSize="13"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <Panel Grid.Column="1">
-                                                <!-- Plain status -->
-                                                <TextBlock Text="{Binding Status}"
-                                                           VerticalAlignment="Center" FontSize="12"
-                                                           Foreground="SteelBlue"
-                                                           Margin="12,0,0,0" MinWidth="120"
-                                                           IsVisible="{Binding !CanOpenOutput}" />
-                                                <!-- Clickable "已修复": opens Explorer pre-selected -->
-                                                <Button Classes="link"
-                                                        Content="{Binding Status}"
-                                                        Command="{Binding OpenOutputCommand}"
-                                                        IsVisible="{Binding CanOpenOutput}" />
-                                            </Panel>
-                                            <TextBlock Grid.Column="2" Text="{Binding PixelsFixed, StringFormat='{}{0:N0}'}"
-                                                       VerticalAlignment="Center" FontSize="12"
-                                                       Foreground="Gray" Margin="12,0,0,0" MinWidth="80"
-                                                       TextAlignment="Right" />
-                                        </Grid>
+                <!-- A) 空态：整窗拖放引导区 -->
+                <Border Classes="empty-zone" Classes.ov="{Binding IsDragOver}"
+                        IsVisible="{Binding !HasFiles}">
+                    <Panel>
+                        <Rectangle Classes="empty-stroke" Classes.ov="{Binding IsDragOver}"
+                                   RadiusX="16" RadiusY="16" Margin="10" />
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480" Margin="32">
+                            <Viewbox Width="44" Height="44" HorizontalAlignment="Center" Margin="0,0,0,16">
+                                <Path Data="{StaticResource Icon.Aperture}"
+                                      Stroke="{DynamicResource SemiColorText3}" StrokeThickness="1.4" />
+                            </Viewbox>
+                            <TextBlock Text="将 NEF 文件拖到此处" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SemiColorText0}" HorizontalAlignment="Center" />
+                            <TextBlock Text="支持批量添加 · 修复后的 DNG 自动写入 NEF 所在目录的 Save_Z8 文件夹"
+                                       FontSize="12" Foreground="{DynamicResource SemiColorText2}"
+                                       TextAlignment="Center" TextWrapping="Wrap"
+                                       HorizontalAlignment="Center" Margin="0,6,0,18" />
+                            <Button Classes="Primary" HorizontalAlignment="Center" Click="OnBrowseFiles">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Viewbox Width="15" Height="15">
+                                        <Path Classes="icon-white" Data="{StaticResource Icon.FolderPlus}" />
+                                    </Viewbox>
+                                    <TextBlock Text="选择 NEF 文件…" FontSize="13" />
+                                </StackPanel>
+                            </Button>
+
+                            <!-- 三步引导 -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="26" Margin="0,28,0,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border Width="20" Height="20" CornerRadius="999"
+                                            Background="{DynamicResource SemiColorFill1}" VerticalAlignment="Center">
+                                        <TextBlock Text="1" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource SemiColorText1}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-                </Grid>
-            </Border>
+                                    <TextBlock Text="添加或拖入 NEF" FontSize="11.5"
+                                               Foreground="{DynamicResource SemiColorText3}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border Width="20" Height="20" CornerRadius="999"
+                                            Background="{DynamicResource SemiColorFill1}" VerticalAlignment="Center">
+                                        <TextBlock Text="2" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource SemiColorText1}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <TextBlock Text="一键批量修复" FontSize="11.5"
+                                               Foreground="{DynamicResource SemiColorText3}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Border Width="20" Height="20" CornerRadius="999"
+                                            Background="{DynamicResource SemiColorFill1}" VerticalAlignment="Center">
+                                        <TextBlock Text="3" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource SemiColorText1}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <TextBlock Text="点击「已修复」定位 DNG" FontSize="11.5"
+                                               Foreground="{DynamicResource SemiColorText3}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Panel>
+                </Border>
 
-            <!-- File Picker Button -->
-            <StackPanel Grid.Row="1" HorizontalAlignment="Center" Orientation="Horizontal"
-                        Spacing="12" Margin="0,8,0,0">
-                <Button Content="📁 添加 NEF 文件..." Click="OnBrowseFiles" Padding="20,8" FontSize="13" />
-                <Button Content="🗑 清除列表" Command="{Binding ClearAllCommand}" Padding="16,8" />
-            </StackPanel>
+                <!-- B) 工作区：总览计数 + 文件列表 + 详情面板 -->
+                <Grid IsVisible="{Binding HasFiles}" ColumnDefinitions="*,Auto">
+
+                    <!-- 列表卡片 -->
+                    <Border Grid.Column="0"
+                            Background="{DynamicResource SemiColorBackground1}"
+                            BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1"
+                            CornerRadius="12" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+                            <!-- 总进度条（处理中显示，贴卡片顶边） -->
+                            <ProgressBar Grid.Row="0"
+                                         IsVisible="{Binding IsProcessing}"
+                                         Minimum="0" Maximum="100" Value="{Binding Progress}"
+                                         Height="4" MinHeight="4" CornerRadius="0" Padding="0" Margin="0" />
+
+                            <!-- 总览计数 + 列表操作 -->
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="14,10,10,10">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Files.Count, StringFormat='共 {0} 个'}"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource SemiColorText1}" VerticalAlignment="Center" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Classes="dot" Fill="{DynamicResource SemiGrey5}" />
+                                        <TextBlock Text="{Binding PendingCount, StringFormat='待处理 {0}'}"
+                                                   FontSize="12" Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Classes="dot" Fill="{DynamicResource SemiColorSuccess}" />
+                                        <TextBlock Text="{Binding FixedCount, StringFormat='已修复 {0}'}"
+                                                   FontSize="12" Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Classes="dot" Fill="{DynamicResource SemiTeal4}" />
+                                        <TextBlock Text="{Binding NotNeededCount, StringFormat='无需修复 {0}'}"
+                                                   FontSize="12" Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Classes="dot" Fill="{DynamicResource SemiColorDanger}" />
+                                        <TextBlock Text="{Binding ErrorCount, StringFormat='失败 {0}'}"
+                                                   FontSize="12" Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <Button Classes="Small" Click="OnBrowseFiles">
+                                        <StackPanel Orientation="Horizontal" Spacing="7">
+                                            <Viewbox Width="13" Height="13">
+                                                <Path Classes="icon" Data="{StaticResource Icon.FolderPlus}" />
+                                            </Viewbox>
+                                            <TextBlock Text="添加 NEF 文件…" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Classes="Small" Command="{Binding ClearAllCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="7">
+                                            <Viewbox Width="13" Height="13">
+                                                <Path Classes="icon" Data="{StaticResource Icon.Trash}" />
+                                            </Viewbox>
+                                            <TextBlock Text="清除列表" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 列标题 -->
+                            <Border Grid.Row="2" BorderBrush="{DynamicResource SemiColorBorder}"
+                                    BorderThickness="0,0,0,1" Padding="14,0,14,8">
+                                <Grid ColumnDefinitions="*,128,88">
+                                    <TextBlock Text="文件名" Classes="label-dim" />
+                                    <TextBlock Grid.Column="1" Text="状态" Classes="label-dim" />
+                                    <TextBlock Grid.Column="2" Text="修复像素" Classes="label-dim" TextAlignment="Right" />
+                                </Grid>
+                            </Border>
+
+                            <!-- 文件列表 -->
+                            <ScrollViewer Grid.Row="3">
+                                <ItemsControl ItemsSource="{Binding Files}" Margin="0,0,0,6">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FileItemViewModel">
+                                            <Border Classes="row" Classes.selected="{Binding IsSelected}"
+                                                    PointerPressed="OnFileRowPressed"
+                                                    ToolTip.Tip="{Binding FilePath}">
+                                                <Panel>
+                                                    <Rectangle Height="1" VerticalAlignment="Bottom"
+                                                               Fill="{DynamicResource SemiColorBorder}" />
+                                                    <!-- 选中态左侧强调条 -->
+                                                    <Border Width="3" Height="26" CornerRadius="0,2,2,0"
+                                                            HorizontalAlignment="Left" Margin="-14,0,0,0"
+                                                            Background="{DynamicResource SemiColorPrimary}"
+                                                            IsVisible="{Binding IsSelected}" />
+                                                    <Grid ColumnDefinitions="*,128,88" Margin="14,0">
+                                                        <TextBlock Text="{Binding FileName}"
+                                                                   FontSize="13" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource SemiColorText0}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <!-- 状态列：五态胶囊 -->
+                                                        <Panel Grid.Column="1" VerticalAlignment="Center">
+                                                            <Border Classes="pill" HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource SemiColorFill0}"
+                                                                    IsVisible="{Binding IsPending}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Ellipse Classes="dot" Fill="{DynamicResource SemiGrey5}" />
+                                                                    <TextBlock Text="{Binding Status}" FontSize="12"
+                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <Border Classes="pill" HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource SemiColorPrimaryLight}"
+                                                                    IsVisible="{Binding IsProcessing}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Ellipse Classes="dot dot-pulse" Fill="{DynamicResource SemiColorPrimary}" />
+                                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
+                                                                               Foreground="{DynamicResource SemiColorPrimary}" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <Button Classes="pill-success" HorizontalAlignment="Left"
+                                                                    Content="{Binding Status}"
+                                                                    Command="{Binding OpenOutputCommand}"
+                                                                    ToolTip.Tip="点击在资源管理器中定位输出的 DNG"
+                                                                    IsVisible="{Binding IsFixed}" />
+                                                            <Border Classes="pill" HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource SemiColorFill0}"
+                                                                    IsVisible="{Binding IsNotNeeded}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Ellipse Classes="dot" Fill="{DynamicResource SemiTeal4}" />
+                                                                    <TextBlock Text="{Binding Status}" FontSize="12"
+                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <Border Classes="pill" HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource SemiColorDangerLight}"
+                                                                    ToolTip.Tip="{Binding Error}"
+                                                                    IsVisible="{Binding IsError}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Ellipse Classes="dot" Fill="{DynamicResource SemiColorDanger}" />
+                                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
+                                                                               Foreground="{DynamicResource SemiColorDanger}" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </Panel>
+                                                        <!-- 修复像素列 -->
+                                                        <Panel Grid.Column="2" VerticalAlignment="Center">
+                                                            <TextBlock IsVisible="{Binding IsFixed}"
+                                                                       Text="{Binding PixelsFixed, StringFormat='{}{0:N0}'}"
+                                                                       FontSize="12.5" FontWeight="SemiBold" TextAlignment="Right"
+                                                                       Foreground="{DynamicResource SemiColorText1}" />
+                                                            <TextBlock IsVisible="{Binding !IsFixed}"
+                                                                       Text="—" FontSize="12" TextAlignment="Right"
+                                                                       Foreground="{DynamicResource SemiColorText3}" />
+                                                        </Panel>
+                                                    </Grid>
+                                                </Panel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- 详情面板（点选行后展开） -->
+                    <ContentControl Grid.Column="1" Classes="detail-host" Content="{Binding SelectedFile}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:FileItemViewModel">
+                                <Border Classes="detail-card" Width="292" Margin="12,0,0,0"
+                                        Background="{DynamicResource SemiColorBackground1}"
+                                        BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1"
+                                        CornerRadius="12" Padding="16">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Spacing="13">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="文件详情" Classes="label-dim" VerticalAlignment="Center" />
+                                                <Button Grid.Column="1" Classes="icon-btn" Click="OnCloseDetail"
+                                                        ToolTip.Tip="关闭详情">
+                                                    <Viewbox Width="12" Height="12">
+                                                        <Path Classes="icon" Data="{StaticResource Icon.Close}" />
+                                                    </Viewbox>
+                                                </Button>
+                                            </Grid>
+
+                                            <TextBlock Text="{Binding FileName}" FontSize="14" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource SemiColorText0}" TextWrapping="Wrap" />
+
+                                            <Grid ColumnDefinitions="56,*">
+                                                <TextBlock Text="状态" FontSize="12" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SemiColorText3}" />
+                                                <Panel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
+                                                               Foreground="{DynamicResource SemiColorText1}"
+                                                               VerticalAlignment="Center" TextWrapping="Wrap"
+                                                               IsVisible="{Binding !IsFixed}" />
+                                                    <Button Classes="pill-success" HorizontalAlignment="Left"
+                                                            Content="{Binding Status}"
+                                                            Command="{Binding OpenOutputCommand}"
+                                                            ToolTip.Tip="点击在资源管理器中定位输出的 DNG"
+                                                            IsVisible="{Binding IsFixed}" />
+                                                </Panel>
+                                            </Grid>
+
+                                            <Grid ColumnDefinitions="56,*">
+                                                <TextBlock Text="修复像素" FontSize="12" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SemiColorText3}" />
+                                                <Panel Grid.Column="1">
+                                                    <TextBlock Text="{Binding PixelsFixed, StringFormat='{}{0:N0}'}"
+                                                               FontSize="12" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource SemiColorText1}"
+                                                               VerticalAlignment="Center" IsVisible="{Binding IsFixed}" />
+                                                    <TextBlock Text="—" FontSize="12"
+                                                               Foreground="{DynamicResource SemiColorText3}"
+                                                               VerticalAlignment="Center" IsVisible="{Binding !IsFixed}" />
+                                                </Panel>
+                                            </Grid>
+
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="源文件" Classes="label-dim" />
+                                                <TextBlock Text="{Binding FilePath}" FontSize="12"
+                                                           Foreground="{DynamicResource SemiColorText2}" TextWrapping="Wrap" />
+                                            </StackPanel>
+
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="输出位置" Classes="label-dim" />
+                                                <TextBlock Text="{Binding OutputPreview}" FontSize="12"
+                                                           Foreground="{DynamicResource SemiColorText2}" TextWrapping="Wrap" />
+                                                <TextBlock Text="固定写入 NEF 同目录的 Save_Z8 子文件夹"
+                                                           FontSize="11" Foreground="{DynamicResource SemiColorText3}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+
+                                            <Border IsVisible="{Binding IsError}"
+                                                    Background="{DynamicResource SemiColorDangerLight}"
+                                                    CornerRadius="8" Padding="10">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="错误详情" FontSize="11" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource SemiColorDanger}" />
+                                                    <TextBlock Text="{Binding Error}" FontSize="12"
+                                                               Foreground="{DynamicResource SemiColorDanger}"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                                                <Button Classes="Small" IsVisible="{Binding CanOpenOutput}"
+                                                        Command="{Binding OpenOutputCommand}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="7">
+                                                        <Viewbox Width="13" Height="13">
+                                                            <Path Classes="icon" Data="{StaticResource Icon.External}" />
+                                                        </Viewbox>
+                                                        <TextBlock Text="在资源管理器中显示" FontSize="12" />
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Classes="Small btn-danger-text" Click="OnRemoveDetailFile"
+                                                        ToolTip.Tip="从列表移除该文件">
+                                                    <TextBlock Text="移除" FontSize="12" />
+                                                </Button>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </Border>
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </Grid>
+            </Grid>
+
+            <!-- ================= 底栏 ================= -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,14,0,0">
+                <TextBlock Grid.Column="0" Text="{Binding StatusText}"
+                           FontSize="12" Foreground="{DynamicResource SemiColorText2}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                    <Button Content="取消" Command="{Binding CancelCommand}"
+                            IsVisible="{Binding IsProcessing}" ToolTip.Tip="停止处理剩余文件" />
+                    <Button Classes="Primary" Command="{Binding ProcessAllCommand}"
+                            IsEnabled="{Binding !IsProcessing}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Viewbox Width="15" Height="15">
+                                <Path Classes="icon-white" Data="{StaticResource Icon.Zap}" />
+                            </Viewbox>
+                            <TextBlock Text="开始修复" FontSize="13.5" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Grid>
 
-        <!-- Action Bar -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12" Margin="0,12,0,0"
-                    HorizontalAlignment="Right">
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="Gray"
-                       Margin="0,0,12,0" />
-            <Button Content="取消" Command="{Binding CancelCommand}" Padding="16,6"
-                    IsVisible="{Binding IsProcessing}" />
-            <Button Content="🚑 开始修复" Command="{Binding ProcessAllCommand}"
-                    Padding="24,8" FontSize="14" FontWeight="Bold"
-                    Classes="accent"
-                    IsEnabled="{Binding !IsProcessing}" />
-        </StackPanel>
-    </Grid>
+        <!-- 拖放悬停遮罩（已有文件时覆盖全窗） -->
+        <Border IsVisible="{Binding IsDragOver}"
+                Background="{DynamicResource SemiColorOverlayBackground}">
+            <Panel Margin="10">
+                <Rectangle Stroke="{DynamicResource SemiColorPrimary}" StrokeThickness="2"
+                           StrokeDashArray="6,4" RadiusX="12" RadiusY="12" Fill="Transparent" />
+                <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Background="{DynamicResource SemiColorBackground2}"
+                        CornerRadius="999" Padding="18,10"
+                        BoxShadow="{DynamicResource SemiShadowElevated}">
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <Viewbox Width="16" Height="16">
+                            <Path Data="{StaticResource Icon.FolderPlus}"
+                                  Stroke="{DynamicResource SemiColorText0}" StrokeThickness="1.7" />
+                        </Viewbox>
+                        <TextBlock Text="松开鼠标，添加 NEF 文件" FontSize="13" FontWeight="Medium"
+                                   Foreground="{DynamicResource SemiColorText0}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Panel>
+        </Border>
+    </Panel>
 </Window>

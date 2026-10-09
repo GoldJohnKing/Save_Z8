@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -24,7 +25,34 @@ public partial class FileItemViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanOpenOutput))]
     private string _outputPath = "";
 
+    [ObservableProperty] private bool _isSelected;
+
     public bool CanOpenOutput => !string.IsNullOrEmpty(OutputPath);
+
+    // ---- UI 状态派生（Status 是唯一事实来源；仅供视图分层着色，不参与处理逻辑）----
+    public bool IsPending => Status == "待处理";
+    public bool IsProcessing => Status.StartsWith("处理中", StringComparison.Ordinal);
+    public bool IsFixed => Status.StartsWith("已修复", StringComparison.Ordinal);
+    public bool IsNotNeeded => Status == "无需修复";
+    public bool IsError => Status.StartsWith("错误", StringComparison.Ordinal);
+
+    /// <summary>展示用：修复产物位置预览（固定约定：NEF 同目录 Save_Z8 子文件夹，只读展示）。</summary>
+    public string OutputPreview =>
+        string.IsNullOrEmpty(FilePath)
+            ? ""
+            : Path.Combine(
+                Path.GetDirectoryName(FilePath) ?? "",
+                MainViewModel.OutputFolderName,
+                Path.GetFileNameWithoutExtension(FileName) + "_fixed.dng");
+
+    partial void OnStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsPending));
+        OnPropertyChanged(nameof(IsProcessing));
+        OnPropertyChanged(nameof(IsFixed));
+        OnPropertyChanged(nameof(IsNotNeeded));
+        OnPropertyChanged(nameof(IsError));
+    }
 
     /// <summary>Open Explorer with the output file pre-selected.</summary>
     [RelayCommand]
@@ -46,11 +74,73 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private ObservableCollection<FileItemViewModel> _files = new();
     [ObservableProperty] private bool _isProcessing;
     [ObservableProperty] private double _progress;
-    [ObservableProperty] private string _statusText = "拖放 NEF 文件到此处或点击添加";
+    [ObservableProperty] private string _statusText = "拖放 NEF 文件到此处，或点击「添加 NEF 文件」";
     [ObservableProperty] private string _libRawVersion = "";
+
+    // ---- UI 状态 ----
+    [ObservableProperty] private FileItemViewModel? _selectedFile;
+    [ObservableProperty] private bool _isDragOver;
 
     private CancellationTokenSource? _cts;
     private readonly NefProcessor _processor = new();
+
+    public MainViewModel()
+    {
+        // 列表增删 → 刷新空态/计数总览，并维护行级 PropertyChanged 订阅
+        Files.CollectionChanged += OnFilesCollectionChanged;
+    }
+
+    // ---- 总览计数（UI 扫读用）----
+    public bool HasFiles => Files.Count > 0;
+    public int PendingCount => Files.Count(f => f.IsPending);
+    public int FixedCount => Files.Count(f => f.IsFixed);
+    public int NotNeededCount => Files.Count(f => f.IsNotNeeded);
+    public int ErrorCount => Files.Count(f => f.IsError);
+
+    private void RefreshCounters()
+    {
+        OnPropertyChanged(nameof(PendingCount));
+        OnPropertyChanged(nameof(FixedCount));
+        OnPropertyChanged(nameof(NotNeededCount));
+        OnPropertyChanged(nameof(ErrorCount));
+    }
+
+    partial void OnSelectedFileChanged(FileItemViewModel? oldValue, FileItemViewModel? newValue)
+    {
+        if (oldValue is not null) oldValue.IsSelected = false;
+        if (newValue is not null) newValue.IsSelected = true;
+    }
+
+    private void OnFilesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
+        {
+            foreach (FileItemViewModel item in e.NewItems)
+                item.PropertyChanged += OnFileItemPropertyChanged;
+        }
+
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
+                foreach (FileItemViewModel item in e.OldItems)
+                    item.PropertyChanged -= OnFileItemPropertyChanged;
+                if (SelectedFile is not null && e.OldItems.Contains(SelectedFile))
+                    SelectedFile = null;
+                break;
+            case NotifyCollectionChangedAction.Reset:
+                SelectedFile = null;
+                break;
+        }
+
+        OnPropertyChanged(nameof(HasFiles));
+        RefreshCounters();
+    }
+
+    private void OnFileItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FileItemViewModel.Status))
+            RefreshCounters();
+    }
 
     // File picking is handled by the View (Avalonia StorageProvider)
 
@@ -65,6 +155,7 @@ public partial class MainViewModel : ObservableObject
     private void ClearAll()
     {
         Files.Clear();
+        SelectedFile = null;
         StatusText = "已清空文件列表";
     }
 
@@ -87,7 +178,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _cts.Token.ThrowIfCancellationRequested();
                 StatusText = $"处理中 ({done + 1}/{total}): {item.FileName}";
-                item.Status = "处理中...";
+                item.Status = "处理中…";
 
                 await Task.Run(() =>
                 {

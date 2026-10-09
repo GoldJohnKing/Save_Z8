@@ -37,7 +37,12 @@ public static class LibRawNative
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern void lr_close(IntPtr handle);
 
-    public static string GetVersion() => "LibRaw (需要 libraw_wrapper.dll)";
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr lr_version();
+
+    /// <summary>Native LibRaw version string (e.g. "0.21.3-Release"), shown in the UI footer.</summary>
+    public static string GetVersion()
+        => Marshal.PtrToStringAnsi(lr_version()) ?? "LibRaw (版本未知)";
 
     /// <summary>
     /// Decode a NEF file into raw mosaic pixels + metadata.
