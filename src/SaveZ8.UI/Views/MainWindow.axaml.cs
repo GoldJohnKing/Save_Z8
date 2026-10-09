@@ -27,6 +27,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Drop target opt-in (Avalonia defaults to false → OLE reports no
+        // effects → forbidden cursor). Required for Explorer file drops.
+        DragDrop.SetAllowDrop(this, true);
         // Drag-drop handlers attached in code-behind (Avalonia 11 compatible)
         AddHandler(DragDrop.DropEvent, OnDrop);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
