@@ -134,10 +134,10 @@ public class DngPreviewTests : IDisposable
         Assert.Equal(12u, U32(rawIfd.Tags[50829].Value, 8));              // bottom = height
         Assert.Equal(16u, U32(rawIfd.Tags[50829].Value, 12));             // right = width
 
-        Assert.True(rawIfd.Tags.ContainsKey(50820), "DefaultCropSize missing");
+        Assert.True(rawIfd.Tags.ContainsKey(50720), "DefaultCropSize missing");
         // RATIONAL×2: (12,1),(10,1) — crop = largest preview dims
-        Assert.Equal(12u, U32(rawIfd.Tags[50820].Value, 0));
-        Assert.Equal(10u, U32(rawIfd.Tags[50820].Value, 8));
+        Assert.Equal(12u, U32(rawIfd.Tags[50720].Value, 0));
+        Assert.Equal(10u, U32(rawIfd.Tags[50720].Value, 8));
         Assert.True(rawIfd.Tags.ContainsKey(50719), "DefaultCropOrigin missing");
         Assert.Equal(2u, U32(rawIfd.Tags[50719].Value, 0));               // (16-12)/2 = 2
         Assert.Equal(0u, U32(rawIfd.Tags[50719].Value, 8));               // (12-10)/2=1 → &~1 = 0

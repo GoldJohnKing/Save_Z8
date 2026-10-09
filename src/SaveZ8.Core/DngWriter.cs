@@ -48,7 +48,7 @@ public class DngWriter
     private const ushort TagCalibrationIlluminant1 = 50778;
     private const ushort TagDefaultScale = 50718;
     private const ushort TagDefaultCropOrigin = 50719;
-    private const ushort TagDefaultCropSize = 50820;
+    private const ushort TagDefaultCropSize = 50720;
     private const ushort TagActiveArea = 50829;
     private const ushort TagBaselineExposure = 50730;
     private const ushort TagBaselineNoise = 50731;
