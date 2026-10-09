@@ -18,7 +18,7 @@
 
 | 组件 | JO 的实现 | 本项目 |
 |---|---|---|
-| NEF 解码 | joraw2.wasm（**LibRaw 0.22.2** WASM 封装，含 `nikonHe`/`nikonHeStar` 补丁） | LibRaw 0.21.3 原生 DLL + C 包装器 |
+| NEF 解码 | joraw2.wasm（**LibRaw 0.22.2** WASM 封装，含 `nikonHe`/`nikonHeStar` 补丁） | LibRaw fork（nikon-he-production 分支，同源补丁）原生 DLL + C 包装器 |
 | 修复算法 | Pyodide + numpy（网页内 Python） | C#（`BlackLevelFixer`） |
 | DNG 写盘 | Pyodide 手写 TIFF/DNG（`convert_to_dng`） | C#（`DngWriter`，结构对齐该参考实现） |
 
@@ -38,7 +38,7 @@ Adobe DNG Converter 18.6 的官方输出做过数值标定（详见 `src/SaveZ8.
 build.bat
 ```
 
-脚本自动完成：子模块初始化 → LibRaw 0.21.3 编译 → `libraw_wrapper.dll` 编译 →
+脚本自动完成：子模块初始化 → LibRaw 编译（JO fork，含 HE/HE\* 解码器）→ `libraw_wrapper.dll` 编译 →
 单文件发布（Release，self-contained，原生库内嵌压缩）。
 
 **产物**（单文件，直接分发，无需安装 .NET 运行时）：
@@ -74,12 +74,13 @@ libs\                           原生产物（libraw.dll / libraw_wrapper.dll /
 4. 完成后点击列表中的"已修复"可直接在资源管理器中定位产物
 
 修复在文件级完成：`y ≤ threshold → y+1`（逐 CFA 象限判定），像素级验证
-（45.7M 像素 0 失配）见 `tests/`。
+（45.7M 像素 0 失配）见 `tests/`。列表中的"修复像素"= 被执行 +1 纠正的样本数，
+即该帧真实值落在黑位区（受缺陷波及）的像素规模，随画面暗部占比变化。
 
 ## 命令行诊断工具
 
 ```cmd
-build\bin\Release\diag\net8.0-windows\diag.exe <NEF 路径>
+build\bin\diag\Release\net8.0-windows\diag.exe <NEF 路径>
 ```
 
 对单个文件执行完整管线（解码 → 元数据提取 → 修复 → DNG 写盘）并输出各步骤诊断。
@@ -89,10 +90,12 @@ build\bin\Release\diag\net8.0-windows\diag.exe <NEF 路径>
 ```
 src\SaveZ8.Core\         核心库（解码/修复/元数据/镜头校正/DNG 写盘）
 src\SaveZ8.UI\           Avalonia 桌面界面
-tests\SaveZ8.Tests\      xUnit 测试（15 项）
+tests\SaveZ8.Tests\      xUnit 测试（修复语义 + DNG 结构回读 + 镜头校正映射）
 tools\diag\              命令行诊断工具
 native\libraw_wrapper.cpp  LibRaw C 包装器（P/Invoke 边界）
-external\libraw\         LibRaw 0.21.3 子模块
+external\libraw\         LibRaw 子模块（y-g-jiang fork，nikon-he-production 分支）
+samples\                 验证样本（LFS）：标准无损 / HE\* / HE 各一
+native\libraw_wrapper.cpp  LibRaw C 包装器（P/Invoke 边界）
 ```
 
 ## 已知限制
