@@ -7,7 +7,7 @@
 - 缺陷模型：Z8/Z9 逐 CFA 通道 `stored = x−1 (x ≤ 1008)`；修复 = notch 判据（逐象限 `c1008·3 < c1007` → `y ≤ 1007 则 +1`），唯一路径，无开关
 - 输出固定为 `<NEF 目录>\Save_Z8\<名>_fixed.dng`
 - 像素域：DNG 内存 NEF 14-bit 原值 `x<<2`；BL=4032/WL=63568 与 Adobe 的 1008/15892 等价（勿混用两套域）
-- HE/HE* NEF：LibRaw 0.21.3 解码有数据警告，不影响修复管线
+- HE/HE* NEF：0.21.3 把 Z8 的 HE 误路由到 LJPEG 解码器（SOC 探测只匹配 Z9 机型）→ 取值错误、notch 不触发、仍写盘报成功，**输出不可信**（2026-10 实测 DSC_7593）。0.22.2 原版改为硬拒（LIBRAW_UNSUPPORTED_FORMAT）；真支持 HE 需 0.22.2 + JO nikonHe 补丁（HE* 连 JO fork 也已回退显式拒绝）；标准压缩文件不受影响
 
 ## 架构
 
