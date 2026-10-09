@@ -9,8 +9,8 @@ obj/
 # Native build artifacts
 libs/*.dll
 libs/*.lib
-libs/*.obj
-libs/*.exp
+*.obj
+*.exp
 
 # LibRaw submodule build artifacts
 external/libraw/bin/
