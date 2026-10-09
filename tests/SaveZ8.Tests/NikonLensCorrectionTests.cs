@@ -9,8 +9,8 @@ namespace SaveZ8.Tests;
 /// </summary>
 public class NikonLensCorrectionTests
 {
-    /// <summary>Builds a NEFInfo blob with the given block5/block7 int32 payloads.</summary>
-    private static byte[] BuildNefInfo(int[] block5, int[] block7)
+    /// <summary>Builds a NEFInfo blob with the given block payloads (block6/8 optional).</summary>
+    private static byte[] BuildNefInfo(int[] block5, int[] block7, int[]? block6 = null, int[]? block8 = null)
     {
         using var ms = new MemoryStream();
         var bw = new BinaryWriter(ms);
@@ -18,29 +18,38 @@ public class NikonLensCorrectionTests
         bw.Write(new byte[] { 0x49, 0x49, 42, 0 }); // II*\0
         bw.Write(8u);                                // IFD offset (rel. to TIFF base)
 
-        int ifdSize = 2 + 2 * 12 + 4;
+        int nEntries = 2 + (block6 != null ? 1 : 0) + (block8 != null ? 1 : 0);
+        int ifdSize = 2 + nEntries * 12 + 4;
         // entry values are TIFF-relative (header at position 10); data starts after the IFD
-        int b5 = 8 + ifdSize;   // absolute 18+ifdSize minus TIFF base 10
+        int b5 = 8 + ifdSize;
         int b7 = b5 + block5.Length * 4;
+        int b6 = block6 != null ? b7 + block7.Length * 4 : 0;
+        int b8 = block8 != null ? b6 + block6.Length * 4 : 0;
 
-        bw.Write((ushort)2);
+        bw.Write((ushort)nEntries);
         void Entry(ushort tag, uint count, uint val)
         {
             bw.Write(tag); bw.Write((ushort)7); bw.Write(count); bw.Write(val);
         }
+        // entries must be sorted by tag: 5, 6, 7, 8
         Entry(5, (uint)(block5.Length * 4), (uint)b5);
+        if (block6 != null) Entry(6, (uint)(block6.Length * 4), (uint)b6);
         Entry(7, (uint)(block7.Length * 4), (uint)b7);
+        if (block8 != null) Entry(8, (uint)(block8.Length * 4), (uint)b8);
         bw.Write(0u);
         foreach (var v in block5) bw.Write(v);
         foreach (var v in block7) bw.Write(v);
+        if (block6 != null) foreach (var v in block6) bw.Write(v);
+        if (block8 != null) foreach (var v in block8) bw.Write(v);
         return ms.ToArray();
     }
 
-    // DSC_7592.NEF block payloads (i32)
+    // DSC_7592.NEF block payloads (i32) — tail verbatim from the file
+    // (0x2c..0x50: (0,1),(0,1),0, t4=-28655@0x40, 2^20, 0, 0, last-word@0x50)
     private static readonly int[] B5_7592 =
     {
         808464688, 259, 88474, 4096, 4, 27361, 1048576, -12087, 1048576, -94746, 1048576,
-        0, 1, 0, 1, -28655, 1048576, 0, 0, 0, 0,
+        0, 1, 0, 1, 0, -28655, 1048576, 0, 0, 275775488,
     };
     private static readonly int[] B7_7592 =
     {
@@ -59,9 +68,9 @@ public class NikonLensCorrectionTests
     [Fact]
     public void Decode_MatchesAdobeDngConverter()
     {
-        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, B7_7592));
+        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, B7_7592))!.Warp;
         Assert.NotNull(w);
-        Assert.Equal(3, w.Planes.Length);
+        Assert.Equal(3, w!.Planes.Length);
 
         // distortion (G) exact to ~1e-6
         for (int c = 0; c < 4; c++)
@@ -80,12 +89,80 @@ public class NikonLensCorrectionTests
     {
         // no block7 → R==B==G (distortion only)
         var b7 = (int[])B7_7592.Clone();
-        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, b7));
+        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, b7))!.Warp;
         Assert.NotNull(w);
-        var w2 = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, new int[B7_7592.Length]));
+        var w2 = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, new int[B7_7592.Length]))!.Warp;
         Assert.NotNull(w2);
         Assert.Equal(w2.Planes[0], w2.Planes[1]);
         Assert.Equal(w2.Planes[2], w2.Planes[1]);
+    }
+
+    // DSC_7576.NEF vignette payload (block6 i32, 116B) + block8 (24B) with active flag
+    private static readonly int[] B6_7576 =
+    {
+        808464688, 257, 88474, 4096, 8, 0, 1048576, 0, 1, 4918180, 1048576, 0, 1,
+        -1136314, 1048576, 0, 1, 414090, 1048576, 0, 1, 1, 1, 0, 0, 1024, 0, 0, 0,
+    };
+    private static readonly int[] B8_7576 = { 808464688, -55, 256, 88, 256, 0 };
+
+    // ADC 18.6 actual FixVignetteRadial output for DSC_7576
+    private static readonly double[] AdcVignette = { 0.06478833, -0.17777813, 0.76928908, 0, 0 };
+
+    [Fact]
+    public void Vignette_MatchesAdobeDngConverter()
+    {
+        var v = NikonLensCorrection.Decode(BuildNefInfo(B5_7576(), B7_7592, B6_7576, B8_7576))!.Vignette;
+        Assert.NotNull(v);
+        for (int i = 0; i < 5; i++)
+            Assert.True(Math.Abs(v!.P[i] - AdcVignette[i]) < 5e-4,
+        $"P[{i}]: {v.P[i]} vs ADC {AdcVignette[i]}");
+
+        var blob = NikonLensCorrection.SerializeOpcodeList2(v);
+        // 4 + 16 + 56
+        Assert.Equal(76, blob.Length);
+        Assert.Equal(3, blob[7]);                                            // id=3 FixVignetteRadial
+        Assert.Equal(0x38, blob[19]);                                        // paramLen=56
+        Assert.Equal(0x3F, blob[20]);                                        // P0 ≈ 0.065 → BE f64 0x3F0...
+    }
+
+    [Fact]
+    public void Vignette_SkippedWhenFlagZero()
+    {
+        // block8 flag (+0x04) = 0 → Vignette Control off → no opcode (DSC_7592 behavior)
+        var b8 = (int[])B8_7576.Clone(); b8[1] = 0;
+        var r = NikonLensCorrection.Decode(BuildNefInfo(B5_7576(), B7_7592, B6_7576, b8));
+        Assert.NotNull(r);
+        Assert.Null(r!.Vignette);
+        Assert.NotNull(r.Warp);
+    }
+
+    private static int[] B5_7576()
+    {
+        // 7576: k = (28216, -15312, -94191)/2^20, t4 = -28953/2^20
+        var b = (int[])B5_7592.Clone();
+        b[5] = 28216; b[7] = -15312; b[9] = -94191; b[16] = -28953;
+        return b;
+    }
+
+    // ADC 18.6 actual WarpRectilinear G-plane output for DSC_7576 (t4 scale applied)
+    private static readonly double[] AdcG_7576 = { 1.02855819, -0.09811991, 0.01487094, 0.0030287 };
+
+    [Fact]
+    public void Warp_T4Scale_MatchesAdobeAcrossFocusStates()
+    {
+        // Same lens, different focus: the +0x40 scale term must track ADC exactly
+        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7576(), B7_7576()))!.Warp;
+        Assert.NotNull(w);
+        for (int c = 0; c < 4; c++)
+            Assert.True(Math.Abs(w!.Planes[1][c] - AdcG_7576[c]) < 1e-5,
+        $"G7576[{c}]: {w.Planes[1][c]} vs ADC {AdcG_7576[c]}");
+    }
+
+    private static int[] B7_7576()
+    {
+        var b = (int[])B7_7592.Clone();
+        b[5] = -254; b[7] = 77; b[11] = 379; b[14] = 334; b[16] = -102; b[20] = 293;
+        return b;
     }
 
     [Fact]
@@ -99,7 +176,7 @@ public class NikonLensCorrectionTests
     [Fact]
     public void Serialize_BigEndianOpcodeLayout()
     {
-        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, B7_7592));
+        var w = NikonLensCorrection.Decode(BuildNefInfo(B5_7592, B7_7592))!.Warp;
         Assert.NotNull(w);
         var blob = NikonLensCorrection.SerializeOpcodeList3(w!);
 

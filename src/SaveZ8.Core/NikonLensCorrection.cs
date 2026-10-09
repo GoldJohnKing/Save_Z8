@@ -41,6 +41,8 @@ public static class NikonLensCorrection
     };
 
     private const double Q = 1048576.0; // rational denominator 2^20
+    /// <summary>Reference t4 (block5 +0x40) at which the M matrix was calibrated.</summary>
+    private const double T4Ref = -28655 / Q;
 
     public class WarpParams
     {
@@ -51,11 +53,27 @@ public static class NikonLensCorrection
         public double[] K { get; init; } = new double[3];
     }
 
+    public class VignetteParams
+    {
+        /// <summary>Gain polynomial gain(r²) = P0 + P1·r² + P2·r⁴ + P3·r⁶ + P4·r⁸.</summary>
+        public double[] P { get; init; } = new double[5];
+        public double CenterX { get; init; } = 0.5;
+        public double CenterY { get; init; } = 0.5;
+    }
+
+    public class CorrectionResult
+    {
+        public WarpParams? Warp { get; init; }
+        public VignetteParams? Vignette { get; init; }
+    }
+
     /// <summary>
-    /// Parses the NEFInfo blob (verbatim from the raw SubIFD) and computes WarpRectilinear
-    /// parameters. Returns null when the blob is absent/malformed or carries no data.
+    /// Parses the NEFInfo blob (verbatim from the raw SubIFD) and computes correction
+    /// parameters. Warp is always derived from block 5; vignette only when block 6
+    /// exists and the block 8 activity flag (+0x04) is nonzero (Vignette Control state).
+    /// Returns null when the blob is absent/malformed.
     /// </summary>
-    public static WarpParams? Decode(byte[]? nefInfo)
+    public static CorrectionResult? Decode(byte[]? nefInfo)
     {
         if (nefInfo is not { Length: > 64 }) return null;
         if (nefInfo[0] != (byte)'N' || nefInfo[1] != (byte)'i' || nefInfo[2] != (byte)'k' ||
@@ -71,7 +89,7 @@ public static class NikonLensCorrection
         if (o + 2 > nefInfo.Length) return null;
         int entries = U16(nefInfo, o);
 
-        byte[]? block5 = null, block7 = null;
+        byte[]? block5 = null, block6 = null, block7 = null, block8 = null;
         for (int i = 0; i < entries; i++)
         {
             uint p = o + 2 + (uint)(i * 12);
@@ -89,13 +107,19 @@ public static class NikonLensCorrection
             if (dataOff + size > nefInfo.Length) continue;
 
             if (tag == 5 && count == 84) block5 = Slice(nefInfo, dataOff, 84);
+            if (tag == 6 && count == 116) block6 = Slice(nefInfo, dataOff, 116);
             if (tag == 7 && count == 104) block7 = Slice(nefInfo, dataOff, 104);
+            if (tag == 8 && count == 24) block8 = Slice(nefInfo, dataOff, 24);
         }
 
         if (block5 == null) return null;
 
         // Distortion triple: rational pairs at +0x14, +0x1c, +0x24
         double k1 = I32(block5, 0x14) / Q, k2 = I32(block5, 0x1c) / Q, k3 = I32(block5, 0x24) / Q;
+        // Focus-dependent scale term at +0x40: the whole warp scales by 1/(1+t4)
+        // (verified empirically; residual 1e-7 across the calibration sweep)
+        double t4 = I32(block5, 0x40) / Q;
+        double scale = (1.0 + T4Ref) / (1.0 + t4);
 
         // Green plane = pure distortion
         var g = new double[4];
@@ -119,7 +143,57 @@ public static class NikonLensCorrection
                 }
         }
 
-        return new WarpParams { Planes = new[] { r0, g, b0 }, K = new[] { k1, k2, k3 } };
+        // Focus-dependent global scale (t4): every coefficient scales by (1+t4ref)/(1+t4)
+        for (int c = 0; c < 4; c++)
+        {
+            g[c] *= scale;
+            r0[c] *= scale;
+            b0[c] *= scale;
+        }
+
+        return new CorrectionResult
+        {
+            Warp = new WarpParams { Planes = new[] { r0, g, b0 }, K = new[] { k1, k2, k3 } },
+            Vignette = DecodeVignette(block6, block8),
+        };
+    }
+
+    /// <summary>
+    /// Vignette (block 6): three rationals at +0x24/+0x34/+0x44 map reversed and
+    /// scaled into the DNG FixVignetteRadial gain polynomial:
+    ///   P0 = v3·(21/128), P1 = v2·(21/128), P2 = v1·(21/128), P3 = P4 = 0
+    /// (empirical, calibrated against Adobe DNG Converter 18.6; residual 3e-4 ≈ 0.02% gain).
+    /// Emitted only when the block 8 flag (+0x04) is nonzero (Vignette Control active).
+    /// </summary>
+    private static VignetteParams? DecodeVignette(byte[]? block6, byte[]? block8)
+    {
+        if (block6 == null || block8 == null) return null;
+        if (I32(block8, 0x04) == 0) return null; // Vignette Control off
+
+        const double scale = 21.0 / 128.0;
+        double v1 = I32(block6, 0x24) / Q, v2 = I32(block6, 0x34) / Q, v3 = I32(block6, 0x44) / Q;
+        return new VignetteParams { P = new[] { v3 * scale, v2 * scale, v1 * scale, 0, 0 } };
+    }
+
+    /// <summary>
+    /// Serializes OpcodeList2 (tag 51009) containing one FixVignetteRadial opcode.
+    /// Layout per Adobe DNG SDK dng_opcode_FixVignetteRadial::PutData:
+    ///   5×f64 gain coefficients + f64 centerX + f64 centerY (big-endian).
+    /// </summary>
+    public static byte[] SerializeOpcodeList2(VignetteParams v)
+    {
+        int paramLen = 7 * 8;
+        var ms = new MemoryStream(8 + 16 + paramLen);
+        var bw = new BinaryWriter(ms);
+        bw.Write(Be((uint)1));                 // one opcode
+        bw.Write(Be(3u));                      // opcode id: FixVignetteRadial
+        bw.Write(Be(0x0103_0000));             // minVersion 1.3.0.0
+        bw.Write(Be(0u));                      // flags
+        bw.Write(Be((uint)paramLen));
+        for (int i = 0; i < 5; i++) bw.Write(Be(v.P[i]));
+        bw.Write(Be(v.CenterX));
+        bw.Write(Be(v.CenterY));
+        return ms.ToArray();
     }
 
     /// <summary>

@@ -125,12 +125,14 @@ public class DngPreviewTests : IDisposable
         Assert.Equal(thumb, file[(int)tOff..(int)(tOff + tLen)]);
         Assert.Equal(0u, ifd1.NextIfd);                                 // chain terminates
 
-        // DefaultCrop derived from largest preview: origin centered & even, size = preview dims
-        Assert.True(ifd0.Tags.ContainsKey(50820), "DefaultCropSize missing");
-        Assert.Equal(12u, U32(ifd0.Tags[50820].Value, 0));
-        Assert.Equal(10u, U32(ifd0.Tags[50820].Value, 4));
-        Assert.Equal(2u, U32(ifd0.Tags[50819].Value, 0));                // (16-12)/2 = 2
-        Assert.Equal(0u, U32(ifd0.Tags[50819].Value, 4));                // (12-10)/2=1 → &~1 = 0
+        // ActiveArea: full stored area, replicating Adobe DNG Converter geometry
+        // (warp/vignette radius normalization base). No DefaultCrop.
+        Assert.True(ifd0.Tags.ContainsKey(50829), "ActiveArea missing");
+        Assert.Equal(0u, U32(ifd0.Tags[50829].Value, 0));
+        Assert.Equal(0u, U32(ifd0.Tags[50829].Value, 4));
+        Assert.Equal(12u, U32(ifd0.Tags[50829].Value, 8));   // bottom = height
+        Assert.Equal(16u, U32(ifd0.Tags[50829].Value, 12));  // right = width
+        Assert.False(ifd0.Tags.ContainsKey(50820), "DefaultCropSize should be absent");
 
         // Raw strip untouched by previews
         Assert.Equal((uint)(16 * 12 * 2), U32(ifd0.Tags[279].Value, 0));

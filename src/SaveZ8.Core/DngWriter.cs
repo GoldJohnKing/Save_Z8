@@ -40,8 +40,7 @@ public class DngWriter
     private const ushort TagWhiteLevel = 50717;
     private const ushort TagColorMatrix1 = 50721;
     private const ushort TagCalibrationIlluminant1 = 50778;
-    private const ushort TagDefaultCropOrigin = 50819;
-    private const ushort TagDefaultCropSize = 50820;
+    private const ushort TagActiveArea = 50829;
     private const ushort TagExifIFD = 0x8769;
     private const ushort TagGpsIFD = 0x8825;
 
@@ -68,9 +67,6 @@ public class DngWriter
         public string UniqueCameraModel { get; set; } = "Nikon Z 8";
         public double[]? ColorMatrix1 { get; set; } = { 1.1423, -0.4564, -0.1123, -0.4816, 1.2895, 0.2119, -0.021, 0.1061, 0.7282 };
         public int CalibrationIlluminant1 { get; set; } = 21; // D65
-        /// <summary>Write DefaultCropOrigin/Size derived from the largest embedded
-        /// preview (active area), origin centered and CFA-phase-even. Default true.</summary>
-        public bool AutoDefaultCrop { get; set; } = true;
     }
 
     // ---------- output model ----------
@@ -187,24 +183,16 @@ public class DngWriter
         ifd0.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
         AddLong(TagStripByteCounts, (uint)(shifted.Length * 2));
 
-        // Default crop: active area derived from the largest embedded preview (Z8: 8256×5504
-        // vs raw 8280×5520 including masked borders). Origin centered, rounded to even (CFA-safe).
-        var previews = originalMetadata?.Previews;
-        if (options.AutoDefaultCrop && previews is { Count: > 0 })
-        {
-            var active = previews[^1];
-            if (active.Width <= width && active.Height <= height && (active.Width < width || active.Height < height))
-            {
-                uint ox = (uint)(((width - active.Width) / 2) & ~1);
-                uint oy = (uint)(((height - active.Height) / 2) & ~1);
-                AddLongs(TagDefaultCropOrigin, new[] { ox, oy });
-                AddLongs(TagDefaultCropSize, new[] { (uint)active.Width, (uint)active.Height });
-            }
-        }
+        // ActiveArea: full stored area (top, left, bottom, right) — replicates Adobe DNG
+        // Converter's Z8 geometry. NOTE: no DefaultCrop. WarpRectilinear/FixVignetteRadial
+        // normalize radius over the active area, so this must match ADC's convention
+        // (ActiveArea = full 8280x5520) or the effective correction strength shifts.
+        AddLongs(TagActiveArea, new[] { 0u, 0u, (uint)height, (uint)width });
 
         // ---- preview IFDs (SubIFDs belt) + IFD1 thumbnail (WIC/Explorer braces) ----
         IfdBlock? thumbBlock = null;
         var previewBlocks = new List<IfdBlock>();
+        var previews = originalMetadata?.Previews;
         if (previews is { Count: > 0 })
         {
             // SubIFD previews: all but the smallest; IFD1 chain: the smallest (thumbnail)
@@ -272,15 +260,21 @@ public class DngWriter
 
         ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
 
-        // ---- lens correction: WarpRectilinear opcodes from Nikon NEFInfo (0xC7D5) ----
-        var warp = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
-        if (warp != null)
+        // ---- lens correction opcodes from Nikon NEFInfo (0xC7D5) ----
+        var correction = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
+        if (correction?.Warp != null)
         {
-            var opcodes = NikonLensCorrection.SerializeOpcodeList3(warp);
+            var opcodes = NikonLensCorrection.SerializeOpcodeList3(correction.Warp);
             ifd0.Entries.Add(new Entry { Tag = 51022, Type = 7, // OpcodeList3 (raw IFD = IFD0)
                 Count = (uint)opcodes.Length, Blob = opcodes });
-            ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag)); // re-sort with new tag
         }
+        if (correction?.Vignette != null)
+        {
+            var opcodes = NikonLensCorrection.SerializeOpcodeList2(correction.Vignette);
+            ifd0.Entries.Add(new Entry { Tag = 51009, Type = 7, // OpcodeList2 (raw IFD = IFD0)
+                Count = (uint)opcodes.Length, Blob = opcodes });
+        }
+        ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
 
         // ---- layout phase 1: BFS over blocks, assign IFD offsets and plain blobs ----
         uint cursor = 8;
