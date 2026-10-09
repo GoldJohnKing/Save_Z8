@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 
@@ -388,49 +389,74 @@ public class DngWriter
                 else if (e.SubBlock != null) e.Inline = BitConverter.GetBytes(e.SubBlock.Offset);
 
         // ---- serialize: single pass directly to file (no full-image intermediate copies) ----
-        using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var bw = new BinaryWriter(fs, Encoding.ASCII, leaveOpen: true);
-        bw.Write((byte)0x49); bw.Write((byte)0x49); bw.Write((ushort)42); bw.Write((uint)8);
-
-        foreach (var block in orderedBlocks)
+        // M1 (independent review): serialize to a temp sibling first — on any failure
+        // the previous good output at outputPath stays intact and no half-written
+        // DNG is left behind; swap in atomically on success.
+        string tmpPath = outputPath + ".tmp";
+        try
         {
-            fs.Position = block.Offset;
-            bw.Write((ushort)block.Entries.Count);
-            foreach (var e in block.Entries)
+            using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var bw = new BinaryWriter(fs, Encoding.ASCII, leaveOpen: true))
             {
-                bw.Write(e.Tag); bw.Write(e.Type); bw.Write(e.Count);
-                var inline = new byte[4]; // TIFF value field is fixed 4 bytes
-                if (e.Inline != null) Array.Copy(e.Inline, inline, Math.Min(4, e.Inline.Length));
-                bw.Write(inline);
+            bw.Write((byte)0x49); bw.Write((byte)0x49); bw.Write((ushort)42); bw.Write((uint)8);
+
+            foreach (var block in orderedBlocks)
+            {
+                fs.Position = block.Offset;
+                bw.Write((ushort)block.Entries.Count);
+                foreach (var e in block.Entries)
+                {
+                    bw.Write(e.Tag); bw.Write(e.Type); bw.Write(e.Count);
+                    var inline = new byte[4]; // TIFF value field is fixed 4 bytes
+                    if (e.Inline != null) Array.Copy(e.Inline, inline, Math.Min(4, e.Inline.Length));
+                    bw.Write(inline);
+                }
+                bw.Write(0u); // next IFD: none (IFD chains are modeled as SubIFDs)
+                foreach (var e in block.Entries)
+                    if (e.Blob != null && e.SubBlockList == null)
+                        WriteBlob4Aligned(bw, fs, e.Blob);
             }
-            bw.Write(0u); // next IFD: none (IFD chains are modeled as SubIFDs)
-            foreach (var e in block.Entries)
-                if (e.Blob != null && e.SubBlockList == null)
-                    WriteBlob4Aligned(bw, fs, e.Blob);
+            foreach (var e in multiPointers)
+                WriteBlob4Aligned(bw, fs, e.Blob!);
+
+            // Pixel data: 14-bit → 16-bit expansion (×4, clamped to u16) streamed straight
+            // to the file in bounded 128 KB chunks — replaces the previous three full-image
+            // copies (shifted array + pixelBytes + MemoryStream snapshot).
+            long pos = fs.Position;
+            // L3 (independent review): guard the write-position == layout-cursor invariant.
+            if (pos < pixelOffset)
+            {
+                Debug.Assert(pixelOffset - pos <= AlignmentZeros.Length, "alignment gap exceeds zero buffer");
+                bw.Write(AlignmentZeros, 0, (int)(pixelOffset - pos));
+            }
+            else
+            {
+                // A backward seek here would silently overwrite metadata — layout bug.
+                Debug.Assert(fs.Position == pixelOffset, "serialization position drifted from layout cursor");
+                fs.Position = pixelOffset;
+            }
+            const int ChunkPixels = 1 << 16;
+            var chunk = new byte[ChunkPixels * 2];
+            for (int i = 0; i < pixels.Length; i += ChunkPixels)
+            {
+                int n = Math.Min(ChunkPixels, pixels.Length - i);
+                var src = pixels.AsSpan(i, n);
+                int off = 0;
+                for (int k = 0; k < src.Length; k++)
+                {
+                    ushort v = (ushort)Math.Min(src[k] << PixelBitShift, 65535);
+                    chunk[off++] = (byte)v;
+                    chunk[off++] = (byte)(v >> 8);
+                }
+                bw.Write(chunk, 0, n * 2);
+            }
+            }
+            File.Move(tmpPath, outputPath, overwrite: true);
         }
-        foreach (var e in multiPointers)
-            WriteBlob4Aligned(bw, fs, e.Blob!);
-
-        // Pixel data: 14-bit → 16-bit expansion (×4, clamped to u16) streamed straight
-        // to the file in bounded 128 KB chunks — replaces the previous three full-image
-        // copies (shifted array + pixelBytes + MemoryStream snapshot).
-        long pos = fs.Position;
-        if (pos < pixelOffset) bw.Write(AlignmentZeros, 0, (int)(pixelOffset - pos));
-        else fs.Position = pixelOffset;
-        const int ChunkPixels = 1 << 16;
-        var chunk = new byte[ChunkPixels * 2];
-        for (int i = 0; i < pixels.Length; i += ChunkPixels)
+        catch
         {
-            int n = Math.Min(ChunkPixels, pixels.Length - i);
-            var src = pixels.AsSpan(i, n);
-            int off = 0;
-            for (int k = 0; k < src.Length; k++)
-            {
-                ushort v = (ushort)Math.Min(src[k] << PixelBitShift, 65535);
-                chunk[off++] = (byte)v;
-                chunk[off++] = (byte)(v >> 8);
-            }
-            bw.Write(chunk, 0, n * 2);
+            try { File.Delete(tmpPath); } catch { /* best-effort cleanup */ }
+            throw;
         }
     }
 

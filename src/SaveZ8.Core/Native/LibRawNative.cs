@@ -107,9 +107,10 @@ public static class LibRawNative
 
     private static string LibRawErrorMessage(int code) => code switch
     {
-        -100009 => "RAW格式不支持(-100009)",
-        -100010 => "请求不存在的图像",
-        -100011 => "调用顺序错误",
+        // Codes verified against external/libraw libraw_const.h (fork b577a7e8)
+        -100009 => "I/O 错误(-100009)",
+        -100010 => "已由回调取消(-100010)",
+        -100011 => "裁剪区域无效(-100011)",
         _ => $"LibRaw错误({code})"
     };
 }
