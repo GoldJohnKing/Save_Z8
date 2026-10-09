@@ -99,5 +99,7 @@ external\libraw\         LibRaw 0.21.3 子模块
 
 - 暗角校正在"暗角控制=关闭"的文件上不写入（与 Adobe 行为一致）
 - 镜头校正标定基于 Z8 固件 3.11 + ADC 18.6（28mm 端实测验证，映射为纯几何转换）
-- HE/HE* 压缩 NEF 可解码，但 LibRaw 0.21.3 对个别 HE 帧报数据警告（0.22 已改进，
-  与 JO 的 joraw2 一致）；修复管线不受影响
+- HE/HE* NEF 经 y-g-jiang LibRaw fork（nikon-he-production 分支，含 nikonHe/nikonHeStar
+  解码器）真解码；标准 14-bit 无损压缩路径与 0.21.3 逐字节一致。已知边界：HE 格式的有损
+  压缩会部分涂抹黑位 notch，逐象限判据可能欠触发（ISO64 实测 HE 仅单象限修复），HE 上的
+  修复语义待 ACR 交叉验证后定论
