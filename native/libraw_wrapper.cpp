@@ -120,4 +120,9 @@ EXPORT const char* lr_version(void) {
     return LIBRAW_VERSION_STR;
 }
 
+// LibRaw's own error description for a return code (verbatim, English).
+EXPORT const char* lr_strerror(int code) {
+    return libraw_strerror(code);
+}
+
 } // extern "C"

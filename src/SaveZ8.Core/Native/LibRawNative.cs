@@ -105,12 +105,13 @@ public static class LibRawNative
         }
     }
 
-    private static string LibRawErrorMessage(int code) => code switch
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr lr_strerror(int code);
+
+    /// <summary>Surfaces LibRaw's own (verbatim) error text for a return code.</summary>
+    private static string LibRawErrorMessage(int code)
     {
-        // Codes verified against external/libraw libraw_const.h (fork b577a7e8)
-        -100009 => "I/O 错误(-100009)",
-        -100010 => "已由回调取消(-100010)",
-        -100011 => "裁剪区域无效(-100011)",
-        _ => $"LibRaw错误({code})"
-    };
+        string? native = Marshal.PtrToStringAnsi(lr_strerror(code));
+        return string.IsNullOrEmpty(native) ? $"LibRaw错误({code})" : $"LibRaw {native} ({code})";
+    }
 }
