@@ -1,0 +1,14 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+libs/*.dll
+libs/*.lib
+libs/*.obj
+libs/*.exp
+external/libraw/bin/
+external/libraw/lib/
+external/libraw/object/
+*.obj
+*.exp
