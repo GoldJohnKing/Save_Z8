@@ -35,6 +35,9 @@ public static class LibRawNative
     private static extern int lr_get_cfa_pattern(IntPtr handle, byte[] outPattern);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int lr_get_cam_mul(IntPtr handle, float[] out4);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern void lr_close(IntPtr handle);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -44,9 +47,10 @@ public static class LibRawNative
 
     /// <summary>
     /// Decode a NEF file into raw mosaic pixels + metadata.
-    /// Returns (pixels, width, height, blackLevel, whiteLevel, cfaPattern).
+    /// Returns (pixels, width, height, blackLevel, whiteLevel, cfaPattern, cameraWb).
+    /// cameraWb = as-shot white balance multipliers (R,G1,B,G2) from LibRaw cam_mul.
     /// </summary>
-    public static (ushort[] pixels, int width, int height, int blackLevel, int whiteLevel, byte[] cfaPattern)
+    public static (ushort[] pixels, int width, int height, int blackLevel, int whiteLevel, byte[] cfaPattern, float[] cameraWb)
         Decode(string filepath)
     {
         int error;
@@ -75,6 +79,9 @@ public static class LibRawNative
             var cfa = new byte[4];
             lr_get_cfa_pattern(handle, cfa);
 
+            var camMul = new float[4];
+            lr_get_cam_mul(handle, camMul);
+
             IntPtr rawPtr = lr_get_raw_image(handle);
             if (rawPtr == IntPtr.Zero)
                 throw new InvalidOperationException("raw_image 指针为空");
@@ -91,7 +98,7 @@ public static class LibRawNative
                 }
             }
 
-            return (pixels, width, height, black, white, cfa);
+            return (pixels, width, height, black, white, cfa, camMul);
         }
         finally
         {

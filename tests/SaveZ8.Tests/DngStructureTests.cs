@@ -115,7 +115,7 @@ public class DngStructureTests : IDisposable
         Assert.Equal(new byte[] { 1, 6, 0, 0 }, ifd0.Tags[50706].Value);
 
         // WhiteLevel
-        Assert.Equal(65019u, U32(ifd0.Tags[50717].Value, 0));
+        Assert.Equal(63568u, U32(ifd0.Tags[50717].Value, 0));
 
         // Essential baseline tags
         Assert.Equal(32803, U16(ifd0.Tags[262].Value, 0)); // PhotometricInterpretation = CFA

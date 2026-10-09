@@ -89,53 +89,62 @@ public class DngPreviewTests : IDisposable
 
         var path = Path.Combine(_tmpDir, "preview.dng");
         var pixels = new ushort[16 * 12];
+        pixels[0] = 1000; pixels[1] = 1001;   // spot-checkable values
         DngWriter.Write(path, pixels, 16, 12, new byte[] { 0, 1, 3, 2 }, metadata);
 
         var file = File.ReadAllBytes(path);
         var ifd0 = ParseIfd(file, U32(file, 4));
 
+        // NEW topology (ADC parity): IFD0 = thumbnail, raw + previews in SubIFDs
+        Assert.Equal(1u, U32(ifd0.Tags[254].Value, 0));                   // IFD0 NST=1 (thumbnail)
+        Assert.Equal(8u, U32(ifd0.Tags[256].Value, 0));                    // thumb dims
+        Assert.Equal(6u, U32(ifd0.Tags[257].Value, 0));
+        Assert.Equal(6, U16(ifd0.Tags[259].Value, 0));                    // JPEG compression
+        uint tOff = U32(ifd0.Tags[513].Value, 0), tLen = U32(ifd0.Tags[514].Value, 0);
+        Assert.Equal((uint)thumb.Length, tLen);
+        Assert.Equal(thumb, file[(int)tOff..(int)(tOff + tLen)]);        // thumbnail bytes intact
+        Assert.Equal(0u, ifd0.NextIfd);                                   // no IFD1 chain
+
         // Orientation preserved from source IFD0
         Assert.True(ifd0.Tags.ContainsKey(274), "Orientation not preserved");
         Assert.Equal(6, U16(ifd0.Tags[274].Value, 0));
 
-        // SubIFDs pointer array → preview IFD with the large JPEG
+        // SubIFDs pointer array → [raw, preview]
         Assert.True(ifd0.Tags.ContainsKey(330), "SubIFDs tag missing in IFD0");
         var (t330, c330, v330) = ifd0.Tags[330];
-        Assert.Equal(1u, c330);
-        uint subIfdOff = U32(v330, 0);
-        Assert.True(subIfdOff > 0 && subIfdOff < file.Length, "SubIFD offset out of range");
-        var prevIfd = ParseIfd(file, subIfdOff);
-        Assert.Equal(1u, U32(prevIfd.Tags[254].Value, 0));              // NewSubfileType=1
-        Assert.Equal(6, U16(prevIfd.Tags[259].Value, 0));               // Compression=JPEG
-        Assert.Equal(2, U16(prevIfd.Tags[262].Value, 0));               // Photometric=RGB
-        Assert.Equal(3, U16(prevIfd.Tags[277].Value, 0));              // SamplesPerPixel=3
-        Assert.Equal(12u, U32(prevIfd.Tags[256].Value, 0));              // width = preview's own dims
+        Assert.Equal(2u, c330);
+        uint rawOff = U32(v330, 0);                        // array[0] = raw IFD
+        uint prevOff = U32(v330, 4);                       // array[1] = preview IFD
+
+        // raw SubIFD
+        var rawIfd = ParseIfd(file, rawOff);
+        Assert.Equal(0u, U32(rawIfd.Tags[254].Value, 0));                 // NST=0 (raw)
+        Assert.Equal(16u, U32(rawIfd.Tags[256].Value, 0));
+        Assert.Equal(12u, U32(rawIfd.Tags[257].Value, 0));
+        Assert.Equal(32803, U16(rawIfd.Tags[262].Value, 0));              // CFA photometric
+        Assert.Equal(new byte[] { 0, 1, 1, 2 }, rawIfd.Tags[33422].Value);
+        Assert.Equal((uint)(16 * 12 * 2), U32(rawIfd.Tags[279].Value, 0));
+        uint px = U32(rawIfd.Tags[273].Value, 0);
+        Assert.Equal(4000, U16(file, (int)px));                           // pixel[0]<<2
+
+        // ActiveArea: full stored area, replicating ADC geometry (no DefaultCrop)
+        Assert.True(rawIfd.Tags.ContainsKey(50829), "ActiveArea missing");
+        Assert.Equal(0u, U32(rawIfd.Tags[50829].Value, 0));
+        Assert.Equal(12u, U32(rawIfd.Tags[50829].Value, 8));              // bottom = height
+        Assert.Equal(16u, U32(rawIfd.Tags[50829].Value, 12));             // right = width
+        Assert.False(rawIfd.Tags.ContainsKey(50820), "DefaultCropSize should be absent");
+
+        // preview SubIFD with the large JPEG
+        var prevIfd = ParseIfd(file, prevOff);
+        Assert.Equal(1u, U32(prevIfd.Tags[254].Value, 0));
+        Assert.Equal(6, U16(prevIfd.Tags[259].Value, 0));
+        Assert.Equal(2, U16(prevIfd.Tags[262].Value, 0));
+        Assert.Equal(3, U16(prevIfd.Tags[277].Value, 0));
+        Assert.Equal(12u, U32(prevIfd.Tags[256].Value, 0));
         Assert.Equal(10u, U32(prevIfd.Tags[257].Value, 0));
         uint jOff = U32(prevIfd.Tags[513].Value, 0), jLen = U32(prevIfd.Tags[514].Value, 0);
         Assert.Equal((uint)big.Length, jLen);
-        Assert.Equal(big, file[(int)jOff..(int)(jOff + jLen)]);         // JPEG bytes intact
-
-        // IFD1 chain → thumbnail JPEG (WIC/Explorer path)
-        Assert.True(ifd0.NextIfd != 0, "IFD1 (thumbnail chain) missing");
-        var ifd1 = ParseIfd(file, ifd0.NextIfd);
-        Assert.Equal(1u, U32(ifd1.Tags[254].Value, 0));
-        Assert.Equal(6, U16(ifd1.Tags[259].Value, 0));
-        uint tOff = U32(ifd1.Tags[513].Value, 0), tLen = U32(ifd1.Tags[514].Value, 0);
-        Assert.Equal((uint)thumb.Length, tLen);
-        Assert.Equal(thumb, file[(int)tOff..(int)(tOff + tLen)]);
-        Assert.Equal(0u, ifd1.NextIfd);                                 // chain terminates
-
-        // ActiveArea: full stored area, replicating Adobe DNG Converter geometry
-        // (warp/vignette radius normalization base). No DefaultCrop.
-        Assert.True(ifd0.Tags.ContainsKey(50829), "ActiveArea missing");
-        Assert.Equal(0u, U32(ifd0.Tags[50829].Value, 0));
-        Assert.Equal(0u, U32(ifd0.Tags[50829].Value, 4));
-        Assert.Equal(12u, U32(ifd0.Tags[50829].Value, 8));   // bottom = height
-        Assert.Equal(16u, U32(ifd0.Tags[50829].Value, 12));  // right = width
-        Assert.False(ifd0.Tags.ContainsKey(50820), "DefaultCropSize should be absent");
-
-        // Raw strip untouched by previews
-        Assert.Equal((uint)(16 * 12 * 2), U32(ifd0.Tags[279].Value, 0));
+        Assert.Equal(big, file[(int)jOff..(int)(jOff + jLen)]);
     }
 
     private static byte[] BuildSyntheticNef(byte[] thumb, byte[] big, ushort orientation)

@@ -54,10 +54,10 @@ class Diag
 
         // Step 1: Decode via LibRawNative (same code path as main app)
         Console.Write("[1/4] LibRawNative.Decode... ");
-        ushort[] pixels; int width, height, black, white; byte[] cfa;
+        ushort[] pixels; int width, height, black, white; byte[] cfa; float[] camMul;
         try
         {
-            (pixels, width, height, black, white, cfa) = SaveZ8.Core.Native.LibRawNative.Decode(nefPath);
+            (pixels, width, height, black, white, cfa, camMul) = SaveZ8.Core.Native.LibRawNative.Decode(nefPath);
             Console.WriteLine($"OK ({width}x{height}, BL={black}, WL={white}, CFA=[{cfa[0]},{cfa[1]},{cfa[2]},{cfa[3]}])");
         }
         catch (Exception ex)
@@ -98,7 +98,7 @@ class Diag
         Console.Write("[4/4] DngWriter.Write... ");
         try
         {
-            DngWriter.Write(outPath, pixels, width, height, cfa, metadata);
+            DngWriter.Write(outPath, pixels, width, height, cfa, metadata, cameraWb: camMul);
             Console.WriteLine($"OK ({new FileInfo(outPath).Length / 1024 / 1024:F1} MB)");
         }
         catch (Exception ex)

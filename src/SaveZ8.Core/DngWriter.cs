@@ -7,9 +7,15 @@ namespace SaveZ8.Core;
 
 /// <summary>
 /// Writes uncompressed 16-bit DNG files with original metadata preserved.
-/// Layout: TIFF header → IFD0 (raw, + external blobs) → preview SubIFDs → EXIF IFD
-/// (+ Interop) → GPS IFD → IFD1 (thumbnail chain) → pointer arrays → pixel data.
-/// Reference: JO.html convert_to_dng (core tags) + Adobe DNG spec 1.6 (previews, crops).
+///
+/// Topology (replicates Adobe DNG Converter so ACR renders identically):
+///   IFD0  = thumbnail (NewSubfileType=1) + baseline/color/exposure tags + EXIF/GPS
+///   SubIFDs(0x014A) → raw IFD (NewSubfileType=0, CFA, opcodes, ActiveArea) + previews
+///   IFD1  = absent (IFD0 itself is the thumbnail for generic TIFF/WIC readers)
+///
+/// Rendering-parity values calibrated against ADC 18.6 output for the Z8:
+///   WhiteLevel 63568 (= 15892×4), BaselineExposure +0.20 EV, BaselineNoise 0.8,
+///   BaselineSharpness 1.0, AsShotNeutral = 1/cam_mul (per shot, from LibRaw).
 /// </summary>
 public class DngWriter
 {
@@ -41,6 +47,10 @@ public class DngWriter
     private const ushort TagColorMatrix1 = 50721;
     private const ushort TagCalibrationIlluminant1 = 50778;
     private const ushort TagActiveArea = 50829;
+    private const ushort TagBaselineExposure = 50730;
+    private const ushort TagBaselineNoise = 50731;
+    private const ushort TagBaselineSharpness = 50732;
+    private const ushort TagAsShotNeutral = 50728;
     private const ushort TagExifIFD = 0x8769;
     private const ushort TagGpsIFD = 0x8825;
 
@@ -55,15 +65,14 @@ public class DngWriter
     private static readonly int[] TypeSizes = { 0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8 };
 
     // IFD0 tags safe to copy verbatim from the source file (scalar/string/blobs only).
-    // Strip/SubIFD/preview machinery is deliberately excluded (rebuilt from Previews).
     private static readonly HashSet<ushort> CopyableIfd0Tags = new()
         { 270, 274, 282, 283, 296, 305, 306, 315, 700, 33432 };
 
     public class DngOptions
     {
-        public int BlackLevel { get; set; } = 4032; // 1008 * 4
-        public int WhiteLevel { get; set; } = 65019;
-        public int BitShift { get; set; } = 2; // ×4 to expand 14-bit to 16-bit
+        public int BlackLevel { get; set; } = 4032;        // 1008 * 4 (×4 domain)
+        public int WhiteLevel { get; set; } = 63568;       // 15892 * 4 — Adobe's Z8 white level
+        public int BitShift { get; set; } = 2;             // ×4 to expand 14-bit to 16-bit
         public string UniqueCameraModel { get; set; } = "Nikon Z 8";
         public double[]? ColorMatrix1 { get; set; } = { 1.1423, -0.4564, -0.1123, -0.4816, 1.2895, 0.2119, -0.021, 0.1061, 0.7282 };
         public int CalibrationIlluminant1 { get; set; } = 21; // D65
@@ -86,11 +95,12 @@ public class DngWriter
     {
         public List<Entry> Entries { get; } = new();
         public uint Offset;             // assigned during layout
-        public IfdBlock? NextBlock;     // TIFF next-IFD chain (IFD1 thumbnail)
+        public IfdBlock? NextBlock;     // TIFF next-IFD chain
     }
 
     public static void Write(string outputPath, ushort[] pixels, int width, int height,
-        byte[] cfaPattern, TiffIfdExtractor.ExtractedMetadata? originalMetadata, DngOptions? options = null)
+        byte[] cfaPattern, TiffIfdExtractor.ExtractedMetadata? originalMetadata,
+        DngOptions? options = null, float[]? cameraWb = null)
     {
         options ??= new DngOptions();
 
@@ -107,13 +117,122 @@ public class DngWriter
         for (int i = 0; i < 4; i++)
             dngCfa[i] = cfaPattern[i] switch { 0 => 0, 2 => 2, _ => 1 };
 
-        // ---- build IFD0 (raw) ----
-        var ifd0 = new IfdBlock();
+        // ================= raw IFD =================
+        var rawBlock = new IfdBlock();
 
-        void AddShort(ushort tag, ushort value) =>
-            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeShort, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
-        void AddLong(ushort tag, uint value) =>
-            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
+        void RawShort(ushort tag, ushort value) =>
+            rawBlock.Entries.Add(new Entry { Tag = tag, Type = TypeShort, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
+        void RawLong(ushort tag, uint value) =>
+            rawBlock.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
+        void RawShorts(ushort tag, ushort[] values)
+        {
+            var bytes = new byte[values.Length * 2];
+            for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 2);
+            rawBlock.Entries.Add(bytes.Length <= 4
+                ? new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Inline = Pad(bytes) }
+                : new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Blob = bytes });
+        }
+        void RawLongs(ushort tag, uint[] values)
+        {
+            var bytes = new byte[values.Length * 4];
+            for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 4);
+            rawBlock.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = (uint)values.Length, Blob = bytes });
+        }
+
+        RawLong(TagNewSubfileType, 0);
+        RawLong(TagImageWidth, (uint)width);
+        RawLong(TagImageLength, (uint)height);
+        RawShort(TagBitsPerSample, 16);
+        RawShort(TagCompression, 1);                    // uncompressed
+        RawShort(TagPhotometricInterpretation, 32803);  // CFA
+        RawShort(TagSamplesPerPixel, 1);
+        RawLong(TagRowsPerStrip, (uint)height);
+        RawShort(TagPlanarConfiguration, 1);
+        RawShorts(TagCFARepeatPatternDim, new ushort[] { 2, 2 });
+        rawBlock.Entries.Add(new Entry { Tag = TagCFAPattern, Type = TypeByte, Count = 4, Inline = Pad(dngCfa) });
+        RawShorts(TagBlackLevelRepeatDim, new ushort[] { 2, 2 });
+        RawShorts(TagBlackLevel, new[] { (ushort)options.BlackLevel, (ushort)options.BlackLevel,
+                                         (ushort)options.BlackLevel, (ushort)options.BlackLevel });
+        RawLong(TagWhiteLevel, (uint)options.WhiteLevel);
+
+        // ActiveArea: full stored area — replicates ADC's Z8 geometry. The warp/vignette
+        // opcodes normalize radius over the active area, so this must match ADC's
+        // convention (ActiveArea = full 8280x5520, no DefaultCrop).
+        RawLongs(TagActiveArea, new[] { 0u, 0u, (uint)height, (uint)width });
+
+        // Strip data location — real entries, values resolved by the layout pass
+        rawBlock.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
+        RawLong(TagStripByteCounts, (uint)(shifted.Length * 2));
+
+        // ---- lens correction opcodes from Nikon NEFInfo (0xC7D5) ----
+        var correction = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
+        if (correction?.Warp != null)
+        {
+            var opcodes = NikonLensCorrection.SerializeOpcodeList3(correction.Warp);
+            rawBlock.Entries.Add(new Entry { Tag = 51022, Type = 7, // OpcodeList3
+                Count = (uint)opcodes.Length, Blob = opcodes });
+        }
+        if (correction?.Vignette != null)
+        {
+            var opcodes = NikonLensCorrection.SerializeOpcodeList2(correction.Vignette);
+            rawBlock.Entries.Add(new Entry { Tag = 51009, Type = 7, // OpcodeList2
+                Count = (uint)opcodes.Length, Blob = opcodes });
+        }
+        rawBlock.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
+
+        // ================= preview IFDs =================
+        static IfdBlock PreviewBlock(TiffIfdExtractor.PreviewInfo p)
+        {
+            var block = new IfdBlock();
+            block.Entries.Add(new Entry { Tag = TagNewSubfileType, Type = TypeLong, Count = 1,
+                Inline = Pad(BitConverter.GetBytes(1u)) });
+            block.Entries.Add(new Entry { Tag = TagImageWidth, Type = TypeLong, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((uint)p.Width)) });
+            block.Entries.Add(new Entry { Tag = TagImageLength, Type = TypeLong, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
+            block.Entries.Add(new Entry { Tag = TagBitsPerSample, Type = TypeShort, Count = 3,
+                Blob = new byte[] { 8, 0, 8, 0, 8, 0 } });
+            block.Entries.Add(new Entry { Tag = TagCompression, Type = TypeShort, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((ushort)6)) });          // old-style JPEG
+            block.Entries.Add(new Entry { Tag = TagPhotometricInterpretation, Type = TypeShort, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((ushort)2)) });          // RGB
+            block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormat, Type = TypeLong, Count = 1,
+                Blob = p.Jpeg });                                            // value = jpeg offset
+            block.Entries.Add(new Entry { Tag = TagSamplesPerPixel, Type = TypeShort, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((ushort)3)) });
+            block.Entries.Add(new Entry { Tag = TagRowsPerStrip, Type = TypeLong, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
+            block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormatLength, Type = TypeLong, Count = 1,
+                Inline = Pad(BitConverter.GetBytes((uint)p.Jpeg.Length)) });
+            return block;
+        }
+
+        var previews = originalMetadata?.Previews;
+
+        // ================= IFD0 =================
+        // With previews: IFD0 = thumbnail (ADC topology), raw + larger previews in SubIFDs.
+        // Without previews: IFD0 = raw directly (still valid DNG).
+        var ifd0 = new IfdBlock();
+        var subIfdTargets = new List<IfdBlock>();
+
+        if (previews is { Count: > 0 })
+        {
+            // IFD0 becomes the smallest preview (thumbnail); prepend its image tags
+            foreach (var e in PreviewBlock(previews[0]).Entries)
+                ifd0.Entries.Add(e);
+
+            // SubIFDs: raw first (like ADC), then the remaining previews largest→smallest
+            subIfdTargets.Add(rawBlock);
+            for (int i = previews.Count - 1; i >= 1; i--)
+                subIfdTargets.Add(PreviewBlock(previews[i]));
+        }
+        else
+        {
+            // No previews: IFD0 = raw (move all entries)
+            foreach (var e in rawBlock.Entries)
+                ifd0.Entries.Add(e);
+        }
+
         void AddAscii(ushort tag, string value)
         {
             var bytes = Encoding.ASCII.GetBytes(value + "\0");
@@ -121,50 +240,27 @@ public class DngWriter
                 ? new Entry { Tag = tag, Type = TypeAscii, Count = (uint)bytes.Length, Inline = Pad(bytes) }
                 : new Entry { Tag = tag, Type = TypeAscii, Count = (uint)bytes.Length, Blob = bytes });
         }
-        void AddBytes(ushort tag, byte[] value)
+        void AddShort(ushort tag, ushort value) =>
+            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeShort, Count = 1, Inline = Pad(BitConverter.GetBytes(value)) });
+        void AddRationals(ushort tag, int type, (int num, int den)[] values)
         {
-            ifd0.Entries.Add(value.Length <= 4
-                ? new Entry { Tag = tag, Type = TypeByte, Count = (uint)value.Length, Inline = Pad(value) }
-                : new Entry { Tag = tag, Type = TypeByte, Count = (uint)value.Length, Blob = value });
-        }
-        void AddShorts(ushort tag, ushort[] values)
-        {
-            var bytes = new byte[values.Length * 2];
-            for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 2);
-            ifd0.Entries.Add(bytes.Length <= 4
-                ? new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Inline = Pad(bytes) }
-                : new Entry { Tag = tag, Type = TypeShort, Count = (uint)values.Length, Blob = bytes });
-        }
-        void AddLongs(ushort tag, uint[] values)
-        {
-            var bytes = new byte[values.Length * 4];
-            for (int i = 0; i < values.Length; i++) BitConverter.GetBytes(values[i]).CopyTo(bytes, i * 4);
-            ifd0.Entries.Add(new Entry { Tag = tag, Type = TypeLong, Count = (uint)values.Length, Blob = bytes });
+            var bytes = new byte[values.Length * 8];
+            for (int i = 0; i < values.Length; i++)
+            {
+                BitConverter.GetBytes(values[i].num).CopyTo(bytes, i * 8);
+                BitConverter.GetBytes(values[i].den).CopyTo(bytes, i * 8 + 4);
+            }
+            ifd0.Entries.Add(new Entry { Tag = tag, Type = (ushort)type, Count = (uint)values.Length, Blob = bytes });
         }
 
-        AddLong(TagNewSubfileType, 0);
-        AddLong(TagImageWidth, (uint)width);
-        AddLong(TagImageLength, (uint)height);
-        AddShort(TagBitsPerSample, 16);
-        AddShort(TagCompression, 1);                    // uncompressed
-        AddShort(TagPhotometricInterpretation, 32803);  // CFA
         AddAscii(TagMake, "Nikon");
         AddAscii(TagModel, options.UniqueCameraModel);
-        AddShort(TagSamplesPerPixel, 1);
-        AddLong(TagRowsPerStrip, (uint)height);
-        AddShort(TagPlanarConfiguration, 1);
 
-        AddShorts(TagCFARepeatPatternDim, new ushort[] { 2, 2 });
-        AddBytes(TagCFAPattern, dngCfa);
-
-        AddBytes(TagDNGVersion, new byte[] { 1, 6, 0, 0 });
-        AddBytes(TagDNGBackwardVersion, new byte[] { 1, 4, 0, 0 });
+        ifd0.Entries.Add(new Entry { Tag = TagDNGVersion, Type = TypeByte, Count = 4,
+            Inline = Pad(new byte[] { 1, 6, 0, 0 }) });
+        ifd0.Entries.Add(new Entry { Tag = TagDNGBackwardVersion, Type = TypeByte, Count = 4,
+            Inline = Pad(new byte[] { 1, 4, 0, 0 }) });
         AddAscii(TagUniqueCameraModel, options.UniqueCameraModel);
-
-        AddShorts(TagBlackLevelRepeatDim, new ushort[] { 2, 2 });
-        AddShorts(TagBlackLevel, new[] { (ushort)options.BlackLevel, (ushort)options.BlackLevel,
-                                         (ushort)options.BlackLevel, (ushort)options.BlackLevel });
-        AddLong(TagWhiteLevel, (uint)options.WhiteLevel);
 
         if (options.ColorMatrix1 != null)
         {
@@ -179,62 +275,20 @@ public class DngWriter
         }
         AddShort(TagCalibrationIlluminant1, (ushort)options.CalibrationIlluminant1);
 
-        // Strip data location — real entries, values resolved by the layout pass
-        ifd0.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
-        AddLong(TagStripByteCounts, (uint)(shifted.Length * 2));
+        // Rendering parity with Adobe's Z8 defaults (measured from ADC 18.6 output)
+        AddRationals(TagBaselineExposure, TypeSRational, new[] { (20, 100) });     // +0.20 EV
+        AddRationals(TagBaselineNoise, TypeRational, new[] { (80, 100) });
+        AddRationals(TagBaselineSharpness, TypeRational, new[] { (100, 100) });
 
-        // ActiveArea: full stored area (top, left, bottom, right) — replicates Adobe DNG
-        // Converter's Z8 geometry. NOTE: no DefaultCrop. WarpRectilinear/FixVignetteRadial
-        // normalize radius over the active area, so this must match ADC's convention
-        // (ActiveArea = full 8280x5520) or the effective correction strength shifts.
-        AddLongs(TagActiveArea, new[] { 0u, 0u, (uint)height, (uint)width });
-
-        // ---- preview IFDs (SubIFDs belt) + IFD1 thumbnail (WIC/Explorer braces) ----
-        IfdBlock? thumbBlock = null;
-        var previewBlocks = new List<IfdBlock>();
-        var previews = originalMetadata?.Previews;
-        if (previews is { Count: > 0 })
+        // AsShotNeutral: per-shot camera white balance (inverse multipliers, like ADC)
+        if (cameraWb is { Length: >= 3 } && cameraWb[0] > 0 && cameraWb[1] > 0 && cameraWb[2] > 0)
         {
-            // SubIFD previews: all but the smallest; IFD1 chain: the smallest (thumbnail)
-            foreach (var p in previews)
+            AddRationals(TagAsShotNeutral, TypeRational, new[]
             {
-                var block = new IfdBlock();
-                block.Entries.Add(new Entry { Tag = TagNewSubfileType, Type = TypeLong, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes(1u)) });
-                block.Entries.Add(new Entry { Tag = TagImageWidth, Type = TypeLong, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((uint)p.Width)) });
-                block.Entries.Add(new Entry { Tag = TagImageLength, Type = TypeLong, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
-                block.Entries.Add(new Entry { Tag = TagBitsPerSample, Type = TypeShort, Count = 3,
-                    Blob = new byte[] { 8, 0, 8, 0, 8, 0 } });
-                block.Entries.Add(new Entry { Tag = TagCompression, Type = TypeShort, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((ushort)6)) });          // old-style JPEG
-                block.Entries.Add(new Entry { Tag = TagPhotometricInterpretation, Type = TypeShort, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((ushort)2)) });          // RGB
-                block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormat, Type = TypeLong, Count = 1,
-                    Blob = p.Jpeg });                                            // value = jpeg offset
-                block.Entries.Add(new Entry { Tag = TagSamplesPerPixel, Type = TypeShort, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((ushort)3)) });
-                block.Entries.Add(new Entry { Tag = TagRowsPerStrip, Type = TypeLong, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((uint)p.Height)) });
-                block.Entries.Add(new Entry { Tag = TagJpegInterchangeFormatLength, Type = TypeLong, Count = 1,
-                    Inline = Pad(BitConverter.GetBytes((uint)p.Jpeg.Length)) });
-                previewBlocks.Add(block);
-            }
-            thumbBlock = previewBlocks[0];                       // smallest → IFD1 chain
-            var subPreviews = previewBlocks.Skip(1).ToList();    // rest → SubIFDs
-            if (subPreviews.Count == 1)
-            {
-                // TIFF rule: count=1 LONG (4 bytes) must be inline — use single-pointer entry
-                ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong, Count = 1,
-                    SubBlock = subPreviews[0] });
-            }
-            else if (subPreviews.Count > 1)
-            {
-                ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong,
-                    Count = (uint)subPreviews.Count, SubBlockList = subPreviews });
-            }
-            ifd0.NextBlock = thumbBlock;
+                ((int)Math.Round(1e6 / cameraWb[0]), 1000000),
+                ((int)Math.Round(1e6 / cameraWb[1]), 1000000),
+                ((int)Math.Round(1e6 / cameraWb[2]), 1000000),
+            });
         }
 
         // ---- preserve original metadata (EXIF → Interop, GPS, safe IFD0 tags) ----
@@ -258,22 +312,13 @@ public class DngWriter
                 ifd0.Entries.Add(new Entry { Tag = TagGpsIFD, Type = TypeLong, Count = 1, SubBlock = gpsBlock });
         }
 
-        ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
+        // SubIFDs pointer (raw + previews) — ADC topology
+        if (subIfdTargets.Count == 1)
+            ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong, Count = 1, SubBlock = subIfdTargets[0] });
+        else if (subIfdTargets.Count > 1)
+            ifd0.Entries.Add(new Entry { Tag = TagSubIFDs, Type = TypeLong,
+                Count = (uint)subIfdTargets.Count, SubBlockList = subIfdTargets });
 
-        // ---- lens correction opcodes from Nikon NEFInfo (0xC7D5) ----
-        var correction = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
-        if (correction?.Warp != null)
-        {
-            var opcodes = NikonLensCorrection.SerializeOpcodeList3(correction.Warp);
-            ifd0.Entries.Add(new Entry { Tag = 51022, Type = 7, // OpcodeList3 (raw IFD = IFD0)
-                Count = (uint)opcodes.Length, Blob = opcodes });
-        }
-        if (correction?.Vignette != null)
-        {
-            var opcodes = NikonLensCorrection.SerializeOpcodeList2(correction.Vignette);
-            ifd0.Entries.Add(new Entry { Tag = 51009, Type = 7, // OpcodeList2 (raw IFD = IFD0)
-                Count = (uint)opcodes.Length, Blob = opcodes });
-        }
         ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
 
         // ---- layout phase 1: BFS over blocks, assign IFD offsets and plain blobs ----
@@ -303,7 +348,7 @@ public class DngWriter
                     foreach (var sub in e.SubBlockList) pending.Add(sub);
                 }
             }
-            if (block.NextBlock != null) pending.Add(block.NextBlock); // IFD1 chain (thumbnail)
+            if (block.NextBlock != null) pending.Add(block.NextBlock);
         }
 
         // ---- layout phase 2: SubIFD pointer arrays appended after all blocks ----

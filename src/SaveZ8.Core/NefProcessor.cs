@@ -19,7 +19,7 @@ public class NefProcessor
         try
         {
             // Decode
-            var (pixels, width, height, black, white, cfa) = Native.LibRawNative.Decode(nefPath);
+            var (pixels, width, height, black, white, cfa, camMul) = Native.LibRawNative.Decode(nefPath);
             var metadata = TiffIfdExtractor.Extract(nefPath);
             var image = new Models.NefImage
             {
@@ -39,7 +39,7 @@ public class NefProcessor
 
             // Export
             DngWriter.Write(outputPath, image.Pixels, image.Width, image.Height,
-                image.CfaPattern, image.OriginalMetadata, DngOptions);
+                image.CfaPattern, image.OriginalMetadata, DngOptions, camMul);
 
             sw.Stop();
             return new ProcessingResult

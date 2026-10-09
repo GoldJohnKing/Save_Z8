@@ -96,6 +96,12 @@ EXPORT int lr_get_filters(void* handle) {
     return ((lr_handle_t*)handle)->filters;
 }
 
+EXPORT int lr_get_cam_mul(void* handle, float* out4) {
+    LibRaw *lr = ((lr_handle_t*)handle)->lr;
+    for (int i = 0; i < 4; i++) out4[i] = lr->imgdata.color.cam_mul[i];
+    return 0;
+}
+
 EXPORT int lr_get_cfa_pattern(void* handle, unsigned char* out_pattern) {
     lr_handle_t *h = (lr_handle_t*)handle;
     unsigned int f = (unsigned int)h->filters;
