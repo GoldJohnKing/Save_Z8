@@ -197,7 +197,7 @@ public partial class MainViewModel : ObservableObject
                         item.OutputPath = result.Error == null ? result.OutputPath : "";
                         item.Error = result.Error ?? "";
                         item.Status = result.Error != null ? $"错误: {TruncateError(result.Error)}" :
-                            (result.FixApplied ? $"已修复 ({result.PixelsFixed:N0} 像素)" : "无需修复");
+                            (result.FixApplied ? "已修复" : "无需修复");
                     }
                     catch (Exception ex)
                     {

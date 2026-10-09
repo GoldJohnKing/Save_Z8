@@ -63,7 +63,7 @@
 
         <!-- ============ 状态胶囊 ============ -->
         <Style Selector="Border.pill">
-            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="10,2" />
             <Setter Property="MinHeight" Value="24" />
         </Style>
@@ -89,7 +89,7 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="10,2" />
             <Setter Property="MinHeight" Value="24" />
-            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="CornerRadius" Value="6" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
