@@ -1,15 +1,13 @@
-// native/libraw_wrapper.c — Minimal C wrapper around LibRaw for P/Invoke from C#
-// Compile: cl /LD /O2 libraw_wrapper.c /I <libraw_include> /link <libraw_lib>
-// Or add to VS project as a native C project targeting the same platform.
+// native/libraw_wrapper.cpp — Minimal C wrapper around LibRaw for P/Invoke from C#
+// Uses wide-character paths on Windows for Unicode path support.
 
 #include <stdlib.h>
 #include <string.h>
-// Include LibRaw headers (adjust path to your LibRaw installation)
 #include "libraw/libraw.h"
 
 typedef struct {
     LibRaw *lr;
-    unsigned short *raw_image;   // pointer into LibRaw's internal buffer
+    unsigned short *raw_image;
     int width, height;
     int black_level, white_level;
     int colors, filters;
@@ -18,10 +16,17 @@ typedef struct {
 #ifdef _WIN32
 #define EXPORT __declspec(dllexport)
 #else
-#define EXPORT
+#define EXPORT __attribute__((visibility("default")))
 #endif
 
+extern "C" {
+
+#ifdef _WIN32
+// Windows: use wide-character path (supports Chinese/Japanese/etc. in filenames)
+EXPORT void* lr_open(const wchar_t* filepath, int* error) {
+#else
 EXPORT void* lr_open(const char* filepath, int* error) {
+#endif
     *error = 0;
     lr_handle_t *h = (lr_handle_t*)calloc(1, sizeof(lr_handle_t));
     if (!h) { *error = -1; return NULL; }
@@ -29,7 +34,13 @@ EXPORT void* lr_open(const char* filepath, int* error) {
     h->lr = new LibRaw();
     if (!h->lr) { free(h); *error = -1; return NULL; }
 
-    int ret = h->lr->open_file(filepath);
+    int ret;
+#ifdef _WIN32
+    ret = h->lr->open_file(filepath);
+#else
+    ret = h->lr->open_file(filepath);
+#endif
+
     if (ret != LIBRAW_SUCCESS) {
         delete h->lr; free(h);
         *error = ret;
@@ -43,19 +54,16 @@ EXPORT void* lr_open(const char* filepath, int* error) {
         return NULL;
     }
 
-    // Get dimensions
     h->width = h->lr->imgdata.sizes.raw_width;
     h->height = h->lr->imgdata.sizes.raw_height;
-
-    // Get raw image data (mosaic, u16, pre-black-subtraction)
     h->raw_image = h->lr->imgdata.rawdata.raw_image;
+
     if (!h->raw_image) {
         delete h->lr; free(h);
-        *error = -2; // no raw image
+        *error = -2;
         return NULL;
     }
 
-    // Get metadata
     h->black_level = h->lr->imgdata.color.black;
     h->white_level = h->lr->imgdata.color.maximum;
     h->colors = h->lr->imgdata.idata.colors;
@@ -90,11 +98,7 @@ EXPORT int lr_get_filters(void* handle) {
 
 EXPORT int lr_get_cfa_pattern(void* handle, unsigned char* out_pattern) {
     lr_handle_t *h = (lr_handle_t*)handle;
-    // filters is a 32-bit packed CFA description
-    // For RGGB: filters = 0x94949494 (or similar based on LibRaw encoding)
-    // We decode it to the standard 2x2 pattern: 0=R, 1=G, 2=B
     unsigned int f = (unsigned int)h->filters;
-    // LibRaw's FC() macro: (filters >> (((y << 1 & 14) + (x & 1)) << 1) & 3)
     for (int y = 0; y < 2; y++) {
         for (int x = 0; x < 2; x++) {
             int c = (f >> (((y << 1 & 14) + (x & 1)) << 1)) & 3;
@@ -114,3 +118,5 @@ EXPORT void lr_close(void* handle) {
 EXPORT const char* lr_version(void) {
     return LIBRAW_VERSION_STR;
 }
+
+} // extern "C"

@@ -89,14 +89,24 @@ public partial class MainViewModel : ObservableObject
                 {
                     var outputPath = Path.Combine(OutputDirectory,
                         Path.GetFileNameWithoutExtension(item.FileName) + "_fixed.dng");
-                    var result = _processor.Process(item.FilePath, outputPath);
+                    try
+                    {
+                        // Ensure output directory exists
+                        Directory.CreateDirectory(OutputDirectory);
 
-                    item.FixApplied = result.FixApplied;
-                    item.PixelsFixed = result.PixelsFixed;
-                    item.OutputPath = result.OutputPath;
-                    item.Error = result.Error ?? "";
-                    item.Status = result.Error != null ? "错误" :
-                        (result.FixApplied ? $"已修复 ({result.PixelsFixed:N0} 像素)" : "无需修复");
+                        var result = _processor.Process(item.FilePath, outputPath);
+                        item.FixApplied = result.FixApplied;
+                        item.PixelsFixed = result.PixelsFixed;
+                        item.OutputPath = result.OutputPath;
+                        item.Error = result.Error ?? "";
+                        item.Status = result.Error != null ? $"错误: {TruncateError(result.Error)}" :
+                            (result.FixApplied ? $"已修复 ({result.PixelsFixed:N0} 像素)" : "无需修复");
+                    }
+                    catch (Exception ex)
+                    {
+                        item.Error = ex.Message;
+                        item.Status = $"错误: {TruncateError(ex.Message)}";
+                    }
                 }, _cts.Token);
 
                 done++;
@@ -143,4 +153,7 @@ public partial class MainViewModel : ObservableObject
         }
         StatusText = $"已加载 {Files.Count} 个文件";
     }
+
+    private static string TruncateError(string msg) =>
+        string.IsNullOrEmpty(msg) ? "" : (msg.Length > 150 ? msg[..150] + "…" : msg);
 }
