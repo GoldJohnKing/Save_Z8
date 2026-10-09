@@ -98,12 +98,9 @@ if not exist "%BINDIR%\SaveZ8.UI.exe" (
 )
 if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%"
-copy /y "%BINDIR%\SaveZ8.UI.exe" "%OUT%\" >nul
-copy /y "%BINDIR%\SaveZ8.UI.dll" "%OUT%\" >nul
-copy /y "%BINDIR%\SaveZ8.UI.runtimeconfig.json" "%OUT%\" >nul
-copy /y "%BINDIR%\SaveZ8.UI.deps.json" "%OUT%\" >nul
-copy /y "%BINDIR%\SaveZ8.Core.dll" "%OUT%\" >nul
-for %%f in ("%BINDIR%\CommunityToolkit.*.dll" "%BINDIR%\Microsoft.*.dll") do copy /y "%%f" "%OUT%\" >nul
+REM Stage the COMPLETE build output (Avalonia/Skia runtime DLLs, runtimes\ subtree,
+REM configs) - a framework-dependent app fails to start if anything is missing.
+xcopy /e /y /i "%BINDIR%\*" "%OUT%\" >nul
 copy /y "%LIBS%\libraw.dll" "%OUT%\" >nul
 copy /y "%LIBS%\libraw_wrapper.dll" "%OUT%\" >nul
 
