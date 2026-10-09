@@ -32,31 +32,35 @@ Adobe DNG Converter 18.6 的官方输出做过数值标定（详见 `src/SaveZ8.
 - **.NET 8.0 SDK**
 - **git**（拉取 LibRaw 子模块）
 
-## 一键构建
+## 一键构建与发布
 
 ```cmd
-build.bat            :: Release（默认）
-build.bat Debug
+build.bat
 ```
 
 脚本自动完成：子模块初始化 → LibRaw 0.21.3 编译 → `libraw_wrapper.dll` 编译 →
-.NET 解决方案构建 → 产物汇总。
+单文件发布（Release，self-contained，原生库内嵌压缩）。
 
-**产物输出**（打包发布直接取用，无需进入项目目录）：
+**产物**（单文件，直接分发，无需安装 .NET 运行时）：
 
 ```
-out\SaveZ8.UI.exe        主程序
-out\*.dll                托管库 + libraw.dll + libraw_wrapper.dll
-out\*.json               运行时配置
+out\SaveZ8.UI.exe    ~46 MB 单文件（含 libraw / Avalonia / Skia 全部依赖）
+```
+
+冒烟自检（无头跑完整管线，验证原生库加载）：
+
+```cmd
+out\SaveZ8.UI.exe --selftest 某文件.nef
 ```
 
 构建路径规范（由 `Directory.Build.props` 统一）：
 
 ```
-build\obj\<Project>\     中间文件
-build\bin\<Config>\<Project>\  编译输出
-out\                     最终分发目录
-libs\                    原生产物（libraw.dll / libraw_wrapper.dll / libraw.lib）
+build\obj\<Project>\            中间文件
+build\bin\<Project>\Release\    编译输出（开发调试用）
+build\publish\                  单文件发布暂存
+out\                            最终分发目录
+libs\                           原生产物（libraw.dll / libraw_wrapper.dll / libraw.lib）
 ```
 
 首次构建 LibRaw 需数分钟；之后 `libs\libraw.dll` 存在即跳过（删除可强制重建）。

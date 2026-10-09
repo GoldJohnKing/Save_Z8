@@ -1,26 +1,27 @@
 @echo off
 setlocal enabledelayedexpansion
 REM ============================================================
-REM Save Z8 Desktop - One-Click Build Script
-REM Usage: build.bat [Release|Debug]   (default: Release)
+REM Save Z8 Desktop - Build & Publish Script (Release only)
+REM Usage: build.bat
 REM
+REM Produces: out\SaveZ8.UI.exe  (single-file, self-contained,
+REM           native DLLs embedded, ~46 MB, no .NET runtime needed)
 REM Layout (normalized by Directory.Build.props):
-REM   build\obj\<Project>           intermediates
-REM   build\bin\<Config>\<Project>  build outputs
-REM   out\                          staged distributable (exe + DLLs)
-REM   libs\                         native artifacts (libraw, wrapper)
+REM   build\obj\<Project>            intermediates
+REM   build\bin\<Project>\<Config>   build outputs (dev debugging)
+REM   build\publish                  single-file publish staging
+REM   out\                           FINAL distributable
 REM Prereq: VS 2022/2026 + .NET 8 SDK + git (submodules)
 REM ============================================================
 
-set CONFIG=%1
-if "%CONFIG%"=="" set CONFIG=Release
 set ROOT=%~dp0
 set LIBS=%ROOT%libs
 set EXT=%ROOT%external\libraw
 set OUT=%ROOT%out
+set PUB=%ROOT%build\publish
 
 echo ============================================================
-echo  Save Z8 Desktop Build - %CONFIG%
+echo  Save Z8 Desktop - Release Build ^& Publish
 echo ============================================================
 
 REM --- Step 0: prerequisites ---
@@ -38,13 +39,13 @@ if "!VCVARS!"=="" (
     echo ERROR: Visual Studio vcvarsall.bat not found.
     exit /b 1
 )
-echo [0/5] Found VS: !VCVARS!
+echo [0/4] Found VS: !VCVARS!
 
 REM --- Step 1: submodules ---
 if exist "%EXT%\src\libraw_c_api.cpp" (
-    echo [1/5] Submodules OK
+    echo [1/4] Submodules OK
 ) else (
-    echo [1/5] Initializing git submodules...
+    echo [1/4] Initializing git submodules...
     cd /d %ROOT%
     git submodule update --init --recursive
     if errorlevel 1 (echo ERROR: git submodule failed & exit /b 1)
@@ -52,11 +53,11 @@ if exist "%EXT%\src\libraw_c_api.cpp" (
 
 REM --- Step 2: LibRaw DLL (skip if already built) ---
 if exist "%LIBS%\libraw.dll" (
-    echo [2/5] libraw.dll exists, skipping. Delete libs\libraw.dll to rebuild.
+    echo [2/4] libraw.dll exists, skipping. Delete libs\libraw.dll to rebuild.
     goto :wrapper
 )
 
-echo [2/5] Building LibRaw 0.21.3...
+echo [2/4] Building LibRaw 0.21.3...
 call "!VCVARS!" x64 >nul 2>&1
 cd /d %EXT%
 if not exist bin mkdir bin
@@ -73,7 +74,7 @@ echo       libraw.dll built OK
 
 :wrapper
 REM --- Step 3: wrapper DLL (always rebuilt - small and fast) ---
-echo [3/5] Building libraw_wrapper.dll...
+echo [3/4] Building libraw_wrapper.dll...
 call "!VCVARS!" x64 >nul 2>&1
 if not exist %LIBS% mkdir %LIBS%
 
@@ -82,30 +83,25 @@ if errorlevel 1 (echo ERROR: libraw_wrapper build failed & exit /b 1)
 del /q %LIBS%\libraw_wrapper.obj %LIBS%\libraw_wrapper.exp %LIBS%\libraw_wrapper.lib 2>nul
 echo       libraw_wrapper.dll built OK
 
-REM --- Step 4: .NET solution ---
-echo [4/5] Building .NET solution (%CONFIG%)...
+REM --- Step 4: single-file publish (Release, self-contained) ---
+echo [4/4] Publishing single-file exe...
 cd /d %ROOT%
 set Platform=
-dotnet build SaveZ8.sln -c %CONFIG% -p:Platform="Any CPU"
-if errorlevel 1 (echo ERROR: .NET build failed & exit /b 1)
+if exist "%PUB%" rmdir /s /q "%PUB%"
+dotnet publish src\SaveZ8.UI\SaveZ8.UI.csproj -c Release -r win-x64 --self-contained true ^
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true ^
+  -p:EnableCompressionInSingleFile=true -p:Platform="Any CPU" ^
+  -p:DebugType=none -o "%PUB%"
+if errorlevel 1 (echo ERROR: publish failed & exit /b 1)
 
-REM --- Step 5: stage distributable to out\ ---
-echo [5/5] Staging distributable to out\...
-set BINDIR=%ROOT%build\bin\SaveZ8.UI\%CONFIG%\net8.0-windows
-if not exist "%BINDIR%\SaveZ8.UI.exe" (
-    echo ERROR: build output not found under %BINDIR%
-    exit /b 1
-)
+REM --- Stage final distributable to out\ ---
 if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%"
-REM Stage the COMPLETE build output (Avalonia/Skia runtime DLLs, runtimes\ subtree,
-REM configs) - a framework-dependent app fails to start if anything is missing.
-xcopy /e /y /i "%BINDIR%\*" "%OUT%\" >nul
-copy /y "%LIBS%\libraw.dll" "%OUT%\" >nul
-copy /y "%LIBS%\libraw_wrapper.dll" "%OUT%\" >nul
+copy /y "%PUB%\SaveZ8.UI.exe" "%OUT%\" >nul
 
 echo.
 echo ============================================================
 echo  BUILD SUCCESSFUL
-echo  Distributable: %OUT%\SaveZ8.UI.exe  (+ DLLs)
+echo  Distributable: %OUT%\SaveZ8.UI.exe  (single file)
+echo  Smoke test:    out\SaveZ8.UI.exe --selftest ^<file.nef^>
 echo ============================================================
