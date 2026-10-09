@@ -272,6 +272,16 @@ public class DngWriter
 
         ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));
 
+        // ---- lens correction: WarpRectilinear opcodes from Nikon NEFInfo (0xC7D5) ----
+        var warp = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
+        if (warp != null)
+        {
+            var opcodes = NikonLensCorrection.SerializeOpcodeList3(warp);
+            ifd0.Entries.Add(new Entry { Tag = 51022, Type = 7, // OpcodeList3 (raw IFD = IFD0)
+                Count = (uint)opcodes.Length, Blob = opcodes });
+            ifd0.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag)); // re-sort with new tag
+        }
+
         // ---- layout phase 1: BFS over blocks, assign IFD offsets and plain blobs ----
         uint cursor = 8;
         var pending = new List<IfdBlock> { ifd0 };
