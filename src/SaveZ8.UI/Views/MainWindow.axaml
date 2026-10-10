@@ -98,23 +98,7 @@
                 </Animation>
             </Style.Animations>
         </Style>
-        <!-- 「已修复」= 可点击胶囊按钮，点击在资源管理器中定位 DNG -->
-        <Style Selector="Button.pill-success">
-            <Setter Property="Background" Value="{DynamicResource SemiColorSuccessLight}" />
-            <Setter Property="Foreground" Value="{DynamicResource SemiColorSuccess}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="10,2" />
-            <Setter Property="MinHeight" Value="24" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.pill-success:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource SemiColorSuccessLightPointerover}" />
-        </Style>
+        <!-- 「已修复」等五态均为纯展示胶囊（Border.pill），跳转统一由行尾「打开」按钮承担 -->
 
         <!-- ============ 文件行 ============ -->
         <Style Selector="Border.row">
@@ -124,21 +108,17 @@
         <Style Selector="Border.row:pointerover">
             <Setter Property="Background" Value="{DynamicResource SemiColorFill0}" />
         </Style>
-        <!-- 行尾操作（打开 / 移除）：平时弱化，悬停行时点亮 -->
+        <!-- 行尾操作（打开 / 移除）：常显保证可发现性，悬停仅做底色与图标提亮 -->
         <Style Selector="Button.row-action">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="5" />
-            <Setter Property="MinWidth" Value="26" />
-            <Setter Property="MinHeight" Value="26" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Opacity" Value="0.55" />
+            <Setter Property="Padding" Value="6" />
+            <Setter Property="MinWidth" Value="28" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="CornerRadius" Value="7" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style Selector="Border.row:pointerover Button.row-action">
-            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.row-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource SemiColorFill1}" />
@@ -147,11 +127,11 @@
             <Setter Property="Background" Value="{DynamicResource SemiColorFill2}" />
         </Style>
         <Style Selector="Path.row-action-icon">
-            <Setter Property="Stroke" Value="{DynamicResource SemiColorText3}" />
+            <Setter Property="Stroke" Value="{DynamicResource SemiColorText2}" />
             <Setter Property="StrokeThickness" Value="1.6" />
         </Style>
         <Style Selector="Button.row-action:pointerover Path.row-action-icon">
-            <Setter Property="Stroke" Value="{DynamicResource SemiColorText1}" />
+            <Setter Property="Stroke" Value="{DynamicResource SemiColorText0}" />
         </Style>
         <!-- 移除按钮悬停转警示色 -->
         <Style Selector="Button.row-action:pointerover Path.row-action-danger">
@@ -294,7 +274,7 @@
                                                    Foreground="{DynamicResource SemiColorText1}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Border>
-                                    <TextBlock Text="点击「已修复」定位 DNG" FontSize="11.5"
+                                    <TextBlock Text="点击行尾「打开」定位 DNG" FontSize="11.5"
                                                Foreground="{DynamicResource SemiColorText3}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>
@@ -368,10 +348,10 @@
                             <!-- 列标题 -->
                             <Border Grid.Row="2" BorderBrush="{DynamicResource SemiColorBorder}"
                                     BorderThickness="0,0,0,1" Padding="14,0,14,8">
-                                <Grid ColumnDefinitions="*,128,88,30">
+                                <Grid ColumnDefinitions="*,170,96,44">
                                     <TextBlock Text="文件名" Classes="label-dim" />
                                     <TextBlock Grid.Column="1" Text="状态" Classes="label-dim" />
-                                    <TextBlock Grid.Column="2" Text="修复像素" Classes="label-dim" TextAlignment="Right" />
+                                    <TextBlock Grid.Column="2" Text="修复像素" Classes="label-dim" TextAlignment="Right" Margin="0,0,8,0" />
                                 </Grid>
                             </Border>
 
@@ -385,12 +365,12 @@
                                                 <Panel>
                                                     <Rectangle Height="1" VerticalAlignment="Bottom"
                                                                Fill="{DynamicResource SemiColorBorder}" />
-                                                    <Grid ColumnDefinitions="*,128,88,30" Margin="14,0">
+                                                    <Grid ColumnDefinitions="*,170,96,44" Margin="14,0">
                                                         <TextBlock Text="{Binding FileName}"
                                                                    FontSize="13" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource SemiColorText0}"
                                                                    TextTrimming="CharacterEllipsis" />
-                                                        <!-- 状态列：五态胶囊 -->
+                                                        <!-- 状态列：五态胶囊（纯展示，跳转统一走行尾按钮） -->
                                                         <Panel Grid.Column="1" VerticalAlignment="Center">
                                                             <Border Classes="pill" HorizontalAlignment="Left"
                                                                     Background="{DynamicResource SemiColorFill0}"
@@ -398,7 +378,8 @@
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <Ellipse Classes="dot" Fill="{DynamicResource SemiGrey5}" />
                                                                     <TextBlock Text="{Binding Status}" FontSize="12"
-                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center"
+                                                                               MaxWidth="138" TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
                                                             </Border>
                                                             <Border Classes="pill" HorizontalAlignment="Left"
@@ -407,21 +388,28 @@
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <Ellipse Classes="dot dot-pulse" Fill="{DynamicResource SemiColorPrimary}" />
                                                                     <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
-                                                                               Foreground="{DynamicResource SemiColorPrimary}" VerticalAlignment="Center" />
+                                                                               Foreground="{DynamicResource SemiColorPrimary}" VerticalAlignment="Center"
+                                                                               MaxWidth="138" TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
                                                             </Border>
-                                                            <Button Classes="pill-success" HorizontalAlignment="Left"
-                                                                    Content="{Binding Status}"
-                                                                    Command="{Binding OpenOutputCommand}"
-                                                                    ToolTip.Tip="点击在资源管理器中定位输出的 DNG"
-                                                                    IsVisible="{Binding IsFixed}" />
+                                                            <Border Classes="pill" HorizontalAlignment="Left"
+                                                                    Background="{DynamicResource SemiColorSuccessLight}"
+                                                                    IsVisible="{Binding IsFixed}">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <Ellipse Classes="dot" Fill="{DynamicResource SemiColorSuccess}" />
+                                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
+                                                                               Foreground="{DynamicResource SemiColorSuccess}" VerticalAlignment="Center"
+                                                                               MaxWidth="138" TextTrimming="CharacterEllipsis" />
+                                                                </StackPanel>
+                                                            </Border>
                                                             <Border Classes="pill" HorizontalAlignment="Left"
                                                                     Background="{DynamicResource SemiColorFill0}"
                                                                     IsVisible="{Binding IsNotNeeded}">
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <Ellipse Classes="dot" Fill="{DynamicResource SemiTeal4}" />
                                                                     <TextBlock Text="{Binding Status}" FontSize="12"
-                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center" />
+                                                                               Foreground="{DynamicResource SemiColorText2}" VerticalAlignment="Center"
+                                                                               MaxWidth="138" TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
                                                             </Border>
                                                             <Border Classes="pill" HorizontalAlignment="Left"
@@ -431,18 +419,19 @@
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <Ellipse Classes="dot" Fill="{DynamicResource SemiColorDanger}" />
                                                                     <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="Medium"
-                                                                               Foreground="{DynamicResource SemiColorDanger}" VerticalAlignment="Center" />
+                                                                               Foreground="{DynamicResource SemiColorDanger}" VerticalAlignment="Center"
+                                                                               MaxWidth="138" TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
                                                             </Border>
                                                         </Panel>
-                                                        <!-- 修复像素列 -->
+                                                        <!-- 修复像素列（右对齐 + 8px 右距，与操作列拉开呼吸间距） -->
                                                         <Panel Grid.Column="2" VerticalAlignment="Center">
                                                             <TextBlock IsVisible="{Binding IsFixed}"
                                                                        Text="{Binding PixelsFixed, StringFormat='{}{0:N0}'}"
-                                                                       FontSize="12.5" FontWeight="SemiBold" TextAlignment="Right"
+                                                                       FontSize="12.5" FontWeight="SemiBold" TextAlignment="Right" Margin="0,0,8,0"
                                                                        Foreground="{DynamicResource SemiColorText1}" />
                                                             <TextBlock IsVisible="{Binding !IsFixed}"
-                                                                       Text="—" FontSize="12" TextAlignment="Right"
+                                                                       Text="—" FontSize="12" TextAlignment="Right" Margin="0,0,8,0"
                                                                        Foreground="{DynamicResource SemiColorText3}" />
                                                         </Panel>
                                                         <!-- 行尾操作列：有输出→打开（定位 DNG）；否则→移除。处理中统一禁用 -->
@@ -452,7 +441,7 @@
                                                                     Command="{Binding OpenOutputCommand}"
                                                                     IsVisible="{Binding CanOpenOutput}"
                                                                     ToolTip.Tip="在资源管理器中显示 DNG">
-                                                                <Viewbox Width="13" Height="13">
+                                                                <Viewbox Width="14" Height="14">
                                                                     <Path Classes="row-action-icon" Data="{StaticResource Icon.External}" />
                                                                 </Viewbox>
                                                             </Button>
@@ -461,7 +450,7 @@
                                                                     CommandParameter="{Binding}"
                                                                     IsVisible="{Binding !CanOpenOutput}"
                                                                     ToolTip.Tip="从列表移除">
-                                                                <Viewbox Width="13" Height="13">
+                                                                <Viewbox Width="14" Height="14">
                                                                     <Path Classes="row-action-icon row-action-danger" Data="{StaticResource Icon.Trash}" />
                                                                 </Viewbox>
                                                             </Button>
