@@ -117,23 +117,27 @@ public partial class MainWindow : Window
             ViewModel.AddFilesFromPaths(paths);
     }
 
-    // ---------- 列表选中 / 详情面板 ----------
+    // ---------- 外链（GitHub / 算法出处）----------
 
-    private void OnFileRowPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is Border { DataContext: FileItemViewModel item })
-            ViewModel.SelectedFile = item;
-    }
+    private void OnOpenGitHub(object? sender, RoutedEventArgs e)
+        => OpenExternalUrl("https://github.com/GoldJohnKing/Save_Z8");
 
-    private void OnCloseDetail(object? sender, RoutedEventArgs e)
-    {
-        ViewModel.SelectedFile = null;
-    }
+    private void OnOpenAuthorSite(object? sender, RoutedEventArgs e)
+        => OpenExternalUrl("https://y-g-jiang.github.io");
 
-    private void OnRemoveDetailFile(object? sender, RoutedEventArgs e)
+    private void OpenExternalUrl(string url)
     {
-        if (ViewModel.SelectedFile is { } item)
-            ViewModel.RemoveSelectedCommand.Execute(item);
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // 无默认浏览器等环境差异：静默忽略，不影响主流程
+        }
     }
 
     // ---------- 主题切换 ----------

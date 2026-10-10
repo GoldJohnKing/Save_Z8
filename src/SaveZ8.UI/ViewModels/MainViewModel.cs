@@ -25,8 +25,6 @@ public partial class FileItemViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanOpenOutput))]
     private string _outputPath = "";
 
-    [ObservableProperty] private bool _isSelected;
-
     public bool CanOpenOutput => !string.IsNullOrEmpty(OutputPath);
 
     // ---- UI 状态派生（Status 是唯一事实来源；仅供视图分层着色，不参与处理逻辑）----
@@ -35,15 +33,6 @@ public partial class FileItemViewModel : ObservableObject
     public bool IsFixed => Status.StartsWith("已修复", StringComparison.Ordinal);
     public bool IsNotNeeded => Status == "无需修复";
     public bool IsError => Status.StartsWith("错误", StringComparison.Ordinal);
-
-    /// <summary>展示用：修复产物位置预览（固定约定：NEF 同目录 Save_Z8 子文件夹，只读展示）。</summary>
-    public string OutputPreview =>
-        string.IsNullOrEmpty(FilePath)
-            ? ""
-            : Path.Combine(
-                Path.GetDirectoryName(FilePath) ?? "",
-                MainViewModel.OutputFolderName,
-                Path.GetFileNameWithoutExtension(FileName) + "_fixed.dng");
 
     partial void OnStatusChanged(string value)
     {
@@ -81,6 +70,22 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private FileItemViewModel? _selectedFile;
     [ObservableProperty] private bool _isDragOver;
 
+    /// <summary>本软件版本号（如 v0.1.0），启动时读程序集版本并缓存。</summary>
+    [ObservableProperty] private string _appVersion = ReadAppVersion();
+
+    private static string ReadAppVersion()
+    {
+        try
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return v is null ? "" : $"v{v.Major}.{v.Minor}.{v.Build}";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     private CancellationTokenSource? _cts;
     private readonly NefProcessor _processor = new();
 
@@ -105,12 +110,6 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ErrorCount));
     }
 
-    partial void OnSelectedFileChanged(FileItemViewModel? oldValue, FileItemViewModel? newValue)
-    {
-        if (oldValue is not null) oldValue.IsSelected = false;
-        if (newValue is not null) newValue.IsSelected = true;
-    }
-
     private void OnFilesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
@@ -119,17 +118,10 @@ public partial class MainViewModel : ObservableObject
                 item.PropertyChanged += OnFileItemPropertyChanged;
         }
 
-        switch (e.Action)
+        if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems is not null)
         {
-            case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
-                foreach (FileItemViewModel item in e.OldItems)
-                    item.PropertyChanged -= OnFileItemPropertyChanged;
-                if (SelectedFile is not null && e.OldItems.Contains(SelectedFile))
-                    SelectedFile = null;
-                break;
-            case NotifyCollectionChangedAction.Reset:
-                SelectedFile = null;
-                break;
+            foreach (FileItemViewModel item in e.OldItems)
+                item.PropertyChanged -= OnFileItemPropertyChanged;
         }
 
         OnPropertyChanged(nameof(HasFiles));
@@ -155,7 +147,6 @@ public partial class MainViewModel : ObservableObject
     private void ClearAll()
     {
         Files.Clear();
-        SelectedFile = null;
         StatusText = "已清空文件列表";
     }
 
