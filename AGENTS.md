@@ -6,7 +6,7 @@
 
 - 缺陷模型：Z8/Z9 逐 CFA 通道 `stored = x−1 (x ≤ 1008)`；修复 = notch 判据（逐象限 `c1008·3 < c1007` → `y ≤ 1007 则 +1`），唯一路径，无开关
 - 输出固定为 `<NEF 目录>\Save_Z8\<名>_fixed.dng`
-- 像素域：DNG 内存 NEF 14-bit 原值 `x<<2`；BL=4032/WL=63568 与 Adobe 的 1008/15892 等价（勿混用两套域）
+- 像素域：未压缩 DNG 存 `x<<2`（BL=4032/WL=63568）；压缩 DNG 存 14-bit 原值（BL=1008/WL=15892，与 ADC 同域）。两套域等价（(p−BL)/(WL−BL) 归一化相同），勿混用
 - HE/HE* NEF：external/libraw = y-g-jiang fork（branch nikon-he-production，b577a7e8，版本串 0.22.0-Release），含 nikonHe/nikonHeStar 真解码器；分流判据 = raw strip 首四字节 `FF 10 FF 50` 且 NEFCompression∈{13,14}。实测 ISO64：HE\*（DSC_7593）notch 清晰、修复 27.4M px；HE（DSC_7594）压缩把 notch 涂抹，判据仅单象限触发——HE 上的修复语义待 ACR 交叉验证。Z8 的 NEFCompression 在 MakerNote tag 0x51+10（老机身才用 0x93；MakerNote 内偏移自相对内部 TIFF 头）
 
 ## 架构
@@ -68,8 +68,8 @@ tests/SaveZ8.Tests/         xUnit：修复语义 + DNG 结构回读 + 镜头校�
 
 ## 压缩输出（Compression=7）
 
-- 恒开启（UI 无开关）：raw SubIFD 改用 256×256 tile（322/323/324/325），每 tile 独立 lossless JPEG 流（libjpeg-turbo 3.2，SOF3/PSV1/Pt0/16-bit/双分量交错，tile 起始偶对齐）；未压缩路径保留为字节基线（diag 默认，`compressed` 参数切换）
-- 坑：JPEG SOF 的 X=每分量宽（MCU 数），双分量交错时传 cols 而非 cols*channels；wrapper 返回值必须 `long long`（MSVC long=32 位，C# long=64 位 ABI 错配）；tile 填充须自行施加 `x<<2` 域扩展（mosaic 数组本身是 14-bit 域）
+- 恒开启（UI 无开关）：raw SubIFD 改用 256×256 tile（322/323/324/325），每 tile 独立 lossless JPEG 流（libjpeg-turbo 3.2，SOF3/PSV1/Pt0/16-bit 容器/14-bit 域值/双分量交错，tile 起始偶对齐，Parallel.For 并行编码字节恒等）；未压缩路径保留为字节基线（diag 默认，`compressed` 参数切换）
+- 坑：JPEG SOF 的 X=每分量宽（MCU 数），双分量交错时传 cols 而非 cols*channels；wrapper 返回值必须 `long long`（MSVC long=32 位，C# long=64 位 ABI 错配）
 - 验证：压缩 DNG 经 rawpy 解码 == 未压缩参照，0 失配；单测 DngCompressedTests（tile 结构 + LibRaw 回读闭环 + 压缩/未压缩互证）
 - LibRaw 解码启发式坑：raw_width == 256/512（恰为 clrs×jwide）的小图会误选分量拆分分支而乱码——真实传感器宽度不受影响，测试帧宽避开
 

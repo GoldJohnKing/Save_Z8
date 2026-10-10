@@ -107,8 +107,9 @@ public class DngCompressedTests : TempDirTestBase
             var (decoded, dw, dh, _, _, _, _) = Core.Native.LibRawNative.Decode(path);
             Assert.Equal(w, dw);
             Assert.Equal(h, dh);
+            // Compressed output keeps the native 14-bit domain (ADC convention).
             for (int i = 0; i < pixels.Length; i++)
-                Assert.Equal((ushort)System.Math.Min(pixels[i] << 2, 65535), decoded[i]);
+                Assert.Equal(pixels[i], decoded[i]);
         }
     }
 
@@ -120,7 +121,8 @@ public class DngCompressedTests : TempDirTestBase
 
         var (a, _, _, _, _, _, _) = Core.Native.LibRawNative.Decode(unc);
         var (b, _, _, _, _, _, _) = Core.Native.LibRawNative.Decode(comp);
-        Assert.True(a.SequenceEqual(b));
+        // Different storage domains (x<<4 vs native): equal after scaling.
+        Assert.True(a.Select(v => (ushort)(v >> 2)).SequenceEqual(b));
         Assert.True(new FileInfo(comp).Length < new FileInfo(unc).Length);
     }
 }

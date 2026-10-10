@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace SaveZ8.Core;
 
@@ -75,8 +77,12 @@ public class DngWriter
 
     // Rendering-parity constants (formerly the DngOptions class — no caller ever
     // overrode any of them, so they are fixed private constants now).
-    private const int BlackLevelValue = 4032;              // 1008 * 4 (×4 domain)
+    private const int BlackLevelValue = 4032;              // 1008 * 4 (×4 domain, uncompressed)
     private const int WhiteLevelValue = 63568;             // 15892 * 4 — Adobe's Z8 white level
+    // Compressed path stores samples in the native 14-bit domain (like ADC itself):
+    // BL/WL scale with the pixels, so (p−BL)/(WL−BL) normalization is identical.
+    private const int BlackLevelValue14 = 1008;
+    private const int WhiteLevelValue14 = 15892;
     private const int PixelBitShift = 2;                   // ×4 to expand 14-bit to 16-bit
     private const string CameraModelName = "Nikon Z 8";
     private const int CalibrationIlluminant1Value = 21;    // D65
@@ -131,12 +137,18 @@ public class DngWriter
         {
             int tilesX = (width + TileSide - 1) / TileSide;
             int tilesY = (height + TileSide - 1) / TileSide;
-            tiles = new List<byte[]>(tilesX * tilesY);
-            var tileSrc = new ushort[TileSide * TileSide]; // 256 u16 samples per row = 128 interleaved pairs
-            var tileOut = new byte[256 * 1024]; // > worst-case expansion; real-photo tiles run ~70-80 KB
-            for (int ty = 0; ty < tilesY; ty++)
-            for (int tx = 0; tx < tilesX; tx++)
+            int n = tilesX * tilesY;
+            var tileArr = new byte[n][];
+            // Per-thread scratch buffers: tile rows (interleaved pairs) and the
+            // encoded-stream capacity. Encoding is pure/deterministic per tile,
+            // so parallel scheduling yields byte-identical output to sequential.
+            var srcBuf = new ThreadLocal<ushort[]>(() => new ushort[TileSide * TileSide]);
+            var outBuf = new ThreadLocal<byte[]>(() => new byte[256 * 1024]);
+            Parallel.For(0, n, i =>
             {
+                int tx = i % tilesX, ty = i / tilesX;
+                var tileSrc = srcBuf.Value!;
+                var tileOut = outBuf.Value!;
                 Array.Clear(tileSrc, 0, tileSrc.Length);
                 int copyW = Math.Min(TileSide, width - tx * TileSide);
                 for (int r = 0; r < TileSide; r++)
@@ -145,10 +157,8 @@ public class DngWriter
                     if (y >= height) break;
                     long dst = (long)r * TileSide;
                     Array.Copy(pixels, (long)y * width + tx * TileSide, tileSrc, dst, copyW);
-                    // Same 14-bit -> 16-bit expansion as the uncompressed writer
-                    // (the mosaic array itself is still in the 14-bit NEF domain).
-                    for (int k = 0; k < copyW; k++)
-                        tileSrc[dst + k] = (ushort)Math.Min(tileSrc[dst + k] << PixelBitShift, 65535);
+                    // Compressed tiles keep the native 14-bit domain (BL/WL tags above
+                    // switch to 1008/15892 accordingly — same ADC convention).
                 }
                 long encoded;
                 unsafe
@@ -162,8 +172,11 @@ public class DngWriter
                 }
                 if (encoded <= 0)
                     throw new IOException($"lossless JPEG tile encode failed (code {encoded})");
-                tiles.Add(tileOut[..(int)encoded]);
-            }
+                tileArr[i] = tileOut[..(int)encoded];
+            });
+            srcBuf.Dispose();
+            outBuf.Dispose();
+            tiles = new List<byte[]>(tileArr);
         }
 
         // ================= raw IFD =================
@@ -218,9 +231,10 @@ public class DngWriter
         RawShorts(TagCFARepeatPatternDim, new ushort[] { 2, 2 });
         rawBlock.Entries.Add(new Entry { Tag = TagCFAPattern, Type = TypeByte, Count = 4, Inline = Pad(dngCfa) });
         RawShorts(TagBlackLevelRepeatDim, new ushort[] { 2, 2 });
-        RawShorts(TagBlackLevel, new[] { (ushort)BlackLevelValue, (ushort)BlackLevelValue,
-                                         (ushort)BlackLevelValue, (ushort)BlackLevelValue });
-        RawLong(TagWhiteLevel, (uint)WhiteLevelValue);
+        int bl = compress ? BlackLevelValue14 : BlackLevelValue;
+        int wl = compress ? WhiteLevelValue14 : WhiteLevelValue;
+        RawShorts(TagBlackLevel, new[] { (ushort)bl, (ushort)bl, (ushort)bl, (ushort)bl });
+        RawLong(TagWhiteLevel, (uint)wl);
 
         // ActiveArea: full stored area — replicates ADC's Z8 geometry. The warp/vignette
         // opcodes normalize radius over the active area, so this must match ADC's
