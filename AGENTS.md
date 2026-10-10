@@ -68,9 +68,10 @@ tests/SaveZ8.Tests/         xUnit：修复语义 + DNG 结构回读 + 镜头校�
 
 ## 压缩输出（Compression=7）
 
-- 默认开启（UI 底栏可关）：raw SubIFD 改用 256×256 tile（322/323/324/325），每 tile 独立 lossless JPEG 流（libjpeg-turbo 3.2，SOF3/PSV1/Pt0/16-bit/双分量交错，tile 起始偶对齐）；未压缩路径保留为字节基线（diag 默认，`compressed` 参数切换）
+- 恒开启（UI 无开关）：raw SubIFD 改用 256×256 tile（322/323/324/325），每 tile 独立 lossless JPEG 流（libjpeg-turbo 3.2，SOF3/PSV1/Pt0/16-bit/双分量交错，tile 起始偶对齐）；未压缩路径保留为字节基线（diag 默认，`compressed` 参数切换）
 - 坑：JPEG SOF 的 X=每分量宽（MCU 数），双分量交错时传 cols 而非 cols*channels；wrapper 返回值必须 `long long`（MSVC long=32 位，C# long=64 位 ABI 错配）；tile 填充须自行施加 `x<<2` 域扩展（mosaic 数组本身是 14-bit 域）
-- 验证：压缩 DNG 经 rawpy 解码 == 未压缩参照，0 失配
+- 验证：压缩 DNG 经 rawpy 解码 == 未压缩参照，0 失配；单测 DngCompressedTests（tile 结构 + LibRaw 回读闭环 + 压缩/未压缩互证）
+- LibRaw 解码启发式坑：raw_width == 256/512（恰为 clrs×jwide）的小图会误选分量拆分分支而乱码——真实传感器宽度不受影响，测试帧宽避开
 
 ## 构建
 

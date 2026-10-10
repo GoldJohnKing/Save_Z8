@@ -474,9 +474,6 @@
                            FontSize="12" Foreground="{DynamicResource SemiColorText2}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <CheckBox IsChecked="{Binding IsCompressed}" Content="无损压缩"
-                              VerticalAlignment="Center"
-                              ToolTip.Tip="输出 DNG 采用无损 JPEG 压缩：体积约减半，画质逐位无损；关闭则输出未压缩 DNG" />
                     <Button Content="取消" Command="{Binding CancelCommand}"
                             IsVisible="{Binding IsProcessing}" ToolTip.Tip="停止处理剩余文件" />
                     <Button Classes="Primary" Command="{Binding ProcessAllCommand}"

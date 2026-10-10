@@ -13,4 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SaveZ8.Core\SaveZ8.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\libs\*.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

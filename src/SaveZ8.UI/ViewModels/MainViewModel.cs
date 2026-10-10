@@ -87,11 +87,6 @@ public partial class MainViewModel : ObservableObject
     private CancellationTokenSource? _cts;
     private readonly NefProcessor _processor = new();
 
-    /// <summary>Output DNG with lossless-JPEG compression (default on, ~45% smaller).</summary>
-    [ObservableProperty] private bool _isCompressed = true;
-
-    partial void OnIsCompressedChanged(bool value) => _processor.CompressOutput = value;
-
     public MainViewModel()
     {
         // 列表增删 → 刷新空态/计数总览，并维护行级 PropertyChanged 订阅
