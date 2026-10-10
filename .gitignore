@@ -23,3 +23,6 @@ external/libraw/object/
 *.suo
 tmp-test/
 *.tmp
+
+# turbo headers copied into libs
+libs/include_dngljpeg/

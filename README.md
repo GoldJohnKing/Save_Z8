@@ -4,7 +4,7 @@
 批量将 NEF 修复并导出为 Adobe DNG，保留完整元数据、镜头校正与预览。
 
 - **修复判据**：Notch（`c1008·3 < c1007`，逐 CFA 象限）——对健康帧（如 ISO 100）零误触发
-- **输出**：未压缩 16-bit CFA DNG，写入 NEF 同目录的 `Save_Z8\` 文件夹
+- **输出**：16-bit CFA DNG，写入 NEF 同目录的 `Save_Z8\` 文件夹；默认无损 JPEG 压缩（Compression=7，体积约 -30%，逐位无损，rawpy 0 失配验证），可在底栏关闭
 - **元数据**：EXIF / GPS / Interop / MakerNote / XMP 完整搬迁
 - **镜头校正**：Nikon NEFInfo（SubIFD `0xC7D5`）→ DNG `WarpRectilinear`（畸变+色差）与
   `FixVignetteRadial`（暗角）OpcodeList，数值与 Adobe DNG Converter 对齐

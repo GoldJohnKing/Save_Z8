@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.IO;
 using System.Runtime.InteropServices;
 using SaveZ8.Core;
@@ -17,7 +18,7 @@ class Diag
         Console.WriteLine($"DLL dir: {AppContext.BaseDirectory}");
 
         // Step 0: Check DLLs
-        foreach (var dll in new[] { "libraw.dll", "libraw_wrapper.dll" })
+        foreach (var dll in new[] { "libraw.dll", "libraw_wrapper.dll", "dng_ljpeg.dll" })
         {
             var path = Path.Combine(AppContext.BaseDirectory, dll);
             Console.WriteLine($"  {dll}: {(File.Exists(path) ? $"OK ({new FileInfo(path).Length} bytes)" : "MISSING!")}");
@@ -30,10 +31,11 @@ class Diag
         try { Console.WriteLine($"  LibRaw: {Marshal.PtrToStringAnsi(lr_version())}"); }
         catch (Exception ex) { Console.WriteLine($"  lr_version: {ex.Message}"); }
 
-        if (args.Length < 1) { Console.WriteLine("\nUsage: diag <nef-file>"); return 0; }
+        if (args.Length < 1) { Console.WriteLine("\nUsage: diag <nef-file> [compressed]"); return 0; }
 
         var nefPath = args[0];
-        var outDir = args.Length > 1 ? args[1] : Path.GetDirectoryName(nefPath)!;
+        bool compressed = args.Length >= 2 && args[1].Equals("compressed", StringComparison.OrdinalIgnoreCase);
+        var outDir = args.Length > 2 ? args[2] : Path.GetDirectoryName(nefPath)!;
         var outPath = Path.Combine(outDir, Path.GetFileNameWithoutExtension(nefPath) + "_diag.dng");
         Console.WriteLine($"\nFile: {nefPath} ({new FileInfo(nefPath).Length} bytes)\n");
 
@@ -86,15 +88,16 @@ class Diag
         Console.Write("[4/4] DngWriter.Write... ");
         try
         {
-            DngWriter.Write(outPath, pixels, width, height, cfa, metadata, cameraWb: camMul);
-            Console.WriteLine($"OK ({new FileInfo(outPath).Length / 1024 / 1024:F1} MB)");
+            DngWriter.Write(outPath, pixels, width, height, cfa, metadata, cameraWb: camMul,
+                compress: compressed);
+            Console.WriteLine($"OK ({new FileInfo(outPath).Length / 1024 / 1024:F1} MB{(compressed ? ", lossless-JPEG tiles" : ", uncompressed")})");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"FAILED:\n  {ex.GetType().Name}: {ex.Message}");
             if (ex.InnerException != null)
                 Console.WriteLine($"  Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
-            Console.WriteLine($"  Stack: {ex.StackTrace?.Split('\n')[0]}");
+            Console.WriteLine($"  Stack: {string.Join("\n         ", (ex.StackTrace ?? "").Split('\n').Take(6))}");
             return 1;
         }
 

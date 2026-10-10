@@ -8,6 +8,13 @@ namespace SaveZ8.Core;
 public class NefProcessor
 {
     /// <summary>
+    /// Write the DNG with lossless-JPEG compressed raw data (Compression=7,
+    /// ~45% smaller). Default on; the uncompressed path stays available as the
+    /// byte-exact regression baseline.
+    /// </summary>
+    public bool CompressOutput { get; set; } = true;
+
+    /// <summary>
     /// Process a single NEF file: decode, fix, and export as DNG.
     /// </summary>
     public ProcessingResult Process(string nefPath, string outputPath)
@@ -33,7 +40,8 @@ public class NefProcessor
 
             // Export
             DngWriter.Write(outputPath, image.Pixels, image.Width, image.Height,
-                image.CfaPattern, image.OriginalMetadata, cameraWb: camMul);
+                image.CfaPattern, image.OriginalMetadata, cameraWb: camMul,
+                compress: CompressOutput);
 
             return new ProcessingResult
             {

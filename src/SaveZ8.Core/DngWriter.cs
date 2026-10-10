@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace SaveZ8.Core;
@@ -34,6 +35,10 @@ public class DngWriter
     private const ushort TagRowsPerStrip = 278;
     private const ushort TagStripByteCounts = 279;
     private const ushort TagPlanarConfiguration = 284;
+    private const ushort TagTileWidth = 322;
+    private const ushort TagTileLength = 323;
+    private const ushort TagTileOffsets = 324;
+    private const ushort TagTileByteCounts = 325;
     private const ushort TagJpegInterchangeFormat = 513;
     private const ushort TagJpegInterchangeFormatLength = 514;
     private const ushort TagCFARepeatPatternDim = 33421;
@@ -95,6 +100,7 @@ public class DngWriter
         public byte[]? Blob;        // >4 bytes, little-endian, final (Inline gets blob offset)
         public IfdBlock? SubBlock;  // tag value = offset of this block
         public List<IfdBlock>? SubBlockList; // tag value = offset of uint[] array (SubIFDs)
+        public List<byte[]>? TileData;       // compressed: value = offset of tile-offset array; array filled at layout phase 3
         public bool IsPixelData;    // tag value = pixel data offset
     }
 
@@ -106,12 +112,59 @@ public class DngWriter
 
     public static void Write(string outputPath, ushort[] pixels, int width, int height,
         byte[] cfaPattern, TiffIfdExtractor.ExtractedMetadata? originalMetadata,
-        float[]? cameraWb = null)
+        float[]? cameraWb = null, bool compress = false)
     {
         // LibRaw CFA indices (0=R,1=G1,2=B,3=G2) → DNG CFAPattern colors (0=Red,1=Green,2=Blue)
         var dngCfa = new byte[4];
         for (int i = 0; i < 4; i++)
             dngCfa[i] = cfaPattern[i] switch { 0 => 0, 2 => 2, _ => 1 };
+
+        // ================= lossless-JPEG tiles (Compression=7, ADC -c profile) =====
+        // 256x256 tiles, each an independent SOF3 stream: PSV=1, Pt=0, 16-bit,
+        // 2 interleaved components (mosaic column pairs feed the interleaver
+        // directly), per-tile optimized Huffman tables (encoder side).
+        // Edge tiles are zero-padded to full geometry (decoder crops via TIFF tile grid).
+        // Tile offsets follow the ADC layout: sequential, each tile start 2-byte aligned.
+        const int TileSide = 256;
+        List<byte[]>? tiles = null;
+        if (compress)
+        {
+            int tilesX = (width + TileSide - 1) / TileSide;
+            int tilesY = (height + TileSide - 1) / TileSide;
+            tiles = new List<byte[]>(tilesX * tilesY);
+            var tileSrc = new ushort[TileSide * TileSide]; // 256 u16 samples per row = 128 interleaved pairs
+            var tileOut = new byte[256 * 1024]; // > worst-case expansion; real-photo tiles run ~70-80 KB
+            for (int ty = 0; ty < tilesY; ty++)
+            for (int tx = 0; tx < tilesX; tx++)
+            {
+                Array.Clear(tileSrc, 0, tileSrc.Length);
+                int copyW = Math.Min(TileSide, width - tx * TileSide);
+                for (int r = 0; r < TileSide; r++)
+                {
+                    int y = ty * TileSide + r;
+                    if (y >= height) break;
+                    long dst = (long)r * TileSide;
+                    Array.Copy(pixels, (long)y * width + tx * TileSide, tileSrc, dst, copyW);
+                    // Same 14-bit -> 16-bit expansion as the uncompressed writer
+                    // (the mosaic array itself is still in the 14-bit NEF domain).
+                    for (int k = 0; k < copyW; k++)
+                        tileSrc[dst + k] = (ushort)Math.Min(tileSrc[dst + k] << PixelBitShift, 65535);
+                }
+                long encoded;
+                unsafe
+                {
+                    fixed (ushort* sp = tileSrc)
+                    fixed (byte* op = tileOut)
+                    {
+                        encoded = Native.DngLjpegNative.lje_encode_tile(sp, TileSide,
+                            TileSide / 2, 2, 16, op, (nuint)tileOut.Length);
+                    }
+                }
+                if (encoded <= 0)
+                    throw new IOException($"lossless JPEG tile encode failed (code {encoded})");
+                tiles.Add(tileOut[..(int)encoded]);
+            }
+        }
 
         // ================= raw IFD =================
         var rawBlock = new IfdBlock();
@@ -149,10 +202,18 @@ public class DngWriter
         RawLong(TagImageWidth, (uint)width);
         RawLong(TagImageLength, (uint)height);
         RawShort(TagBitsPerSample, 16);
-        RawShort(TagCompression, 1);                    // uncompressed
+        RawShort(TagCompression, compress ? (ushort)7 : (ushort)1); // 7 = lossless JPEG (ADC -c), 1 = uncompressed
         RawShort(TagPhotometricInterpretation, 32803);  // CFA
         RawShort(TagSamplesPerPixel, 1);
-        RawLong(TagRowsPerStrip, (uint)height);
+        if (compress)
+        {
+            RawShort(TagTileWidth, TileSide);
+            RawShort(TagTileLength, TileSide);
+        }
+        else
+        {
+            RawLong(TagRowsPerStrip, (uint)height);
+        }
         RawShort(TagPlanarConfiguration, 1);
         RawShorts(TagCFARepeatPatternDim, new ushort[] { 2, 2 });
         rawBlock.Entries.Add(new Entry { Tag = TagCFAPattern, Type = TypeByte, Count = 4, Inline = Pad(dngCfa) });
@@ -186,8 +247,19 @@ public class DngWriter
         }
 
         // Strip data location — real entries, values resolved by the layout pass
-        rawBlock.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
-        RawLong(TagStripByteCounts, (uint)(pixels.Length * 2));
+        if (compress)
+        {
+            // Value field points to a u32 array of tile offsets; array content is
+            // resolved at layout phase 3 (depends on pixelOffset + prefix sizes).
+            rawBlock.Entries.Add(new Entry { Tag = TagTileOffsets, Type = TypeLong,
+                Count = (uint)tiles!.Count, Blob = new byte[tiles.Count * 4], TileData = tiles });
+            RawLongs(TagTileByteCounts, tiles.Select(t => (uint)t.Length).ToArray());
+        }
+        else
+        {
+            rawBlock.Entries.Add(new Entry { Tag = TagStripOffsets, Type = TypeLong, Count = 1, IsPixelData = true });
+            RawLong(TagStripByteCounts, (uint)(pixels.Length * 2));
+        }
 
         // ---- lens correction opcodes from Nikon NEFInfo (0xC7D5) ----
         var correction = NikonLensCorrection.Decode(originalMetadata?.NefInfoData);
@@ -389,6 +461,18 @@ public class DngWriter
             foreach (var e in block.Entries)
                 if (e.IsPixelData) e.Inline = BitConverter.GetBytes(pixelOffset);
                 else if (e.SubBlock != null) e.Inline = BitConverter.GetBytes(e.SubBlock.Offset);
+                else if (e.TileData != null)
+                {
+                    // Tile offsets: sequential from pixelOffset, each start 2-byte aligned
+                    // (matches the serializer's packing rule below).
+                    uint off = pixelOffset;
+                    for (int i = 0; i < e.TileData.Count; i++)
+                    {
+                        BitConverter.GetBytes(off).CopyTo(e.Blob!, i * 4);
+                        off += (uint)e.TileData[i].Length;
+                        off += (off & 1); // pad to even
+                    }
+                }
 
         // ---- serialize: single pass directly to file (no full-image intermediate copies) ----
         // M1 (independent review): serialize to a temp sibling first — on any failure
@@ -437,20 +521,33 @@ public class DngWriter
                 Debug.Assert(fs.Position == pixelOffset, "serialization position drifted from layout cursor");
                 fs.Position = pixelOffset;
             }
-            const int ChunkPixels = 1 << 16;
-            var chunk = new byte[ChunkPixels * 2];
-            for (int i = 0; i < pixels.Length; i += ChunkPixels)
+            if (compress)
             {
-                int n = Math.Min(ChunkPixels, pixels.Length - i);
-                var src = pixels.AsSpan(i, n);
-                int off = 0;
-                for (int k = 0; k < src.Length; k++)
+                // Tile streams are pre-encoded; write sequentially, each start 2-byte
+                // aligned (same rule as the phase-3 offset computation).
+                foreach (var tile in tiles!)
                 {
-                    ushort v = (ushort)Math.Min(src[k] << PixelBitShift, 65535);
-                    chunk[off++] = (byte)v;
-                    chunk[off++] = (byte)(v >> 8);
+                    if ((fs.Position & 1) == 1) bw.Write((byte)0);
+                    bw.Write(tile);
                 }
-                bw.Write(chunk, 0, n * 2);
+            }
+            else
+            {
+                const int ChunkPixels = 1 << 16;
+                var chunk = new byte[ChunkPixels * 2];
+                for (int i = 0; i < pixels.Length; i += ChunkPixels)
+                {
+                    int n = Math.Min(ChunkPixels, pixels.Length - i);
+                    var src = pixels.AsSpan(i, n);
+                    int off = 0;
+                    for (int k = 0; k < src.Length; k++)
+                    {
+                        ushort v = (ushort)Math.Min(src[k] << PixelBitShift, 65535);
+                        chunk[off++] = (byte)v;
+                        chunk[off++] = (byte)(v >> 8);
+                    }
+                    bw.Write(chunk, 0, n * 2);
+                }
             }
             }
             File.Move(tmpPath, outputPath, overwrite: true);

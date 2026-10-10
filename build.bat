@@ -83,6 +83,31 @@ if errorlevel 1 (echo ERROR: libraw_wrapper build failed & exit /b 1)
 del /q "%TEMP%\libraw_wrapper.obj" %LIBS%\libraw_wrapper.exp %LIBS%\libraw_wrapper.lib 2>nul
 echo       libraw_wrapper.dll built OK
 
+REM --- Step 3b: libjpeg-turbo static lib (skip if already built) ---
+if exist "%LIBS%\jpeg-static.lib" (
+    echo [3b] jpeg-static.lib exists, skipping.
+    goto :lje
+)
+echo [3b] Building libjpeg-turbo...
+if not exist "%LIBS%\include_dngljpeg" mkdir "%LIBS%\include_dngljpeg"
+"C:\Program Files\CMake\bin\cmake.exe" -S external\libjpeg-turbo -B build\turbo -G "NMake Makefiles" -DENABLE_SHARED=OFF -DWITH_SIMD=OFF -DCMAKE_BUILD_TYPE=Release
+if errorlevel 1 (echo ERROR: cmake configure failed & exit /b 1)
+"C:\Program Files\CMake\bin\cmake.exe" --build build\turbo --config Release
+if errorlevel 1 (echo ERROR: turbo build failed & exit /b 1)
+copy /y build\turbo\jpeg-static.lib "%LIBS%\" >nul
+copy /y build\turbo\jconfig.h "%LIBS%\include_dngljpeg\" >nul
+copy /y external\libjpeg-turbo\src\jmorecfg.h "%LIBS%\include_dngljpeg\" >nul
+copy /y external\libjpeg-turbo\src\jpeglib.h "%LIBS%\include_dngljpeg\" >nul
+copy /y external\libjpeg-turbo\src\jerror.h "%LIBS%\include_dngljpeg\" >nul
+echo      jpeg-static.lib built OK
+
+:lje
+REM --- Step 3c: dng_ljpeg.dll lossless-JPEG encoder wrapper (always rebuilt) ---
+cl /nologo /LD /O2 /EHsc /W3 /I%LIBS%\include_dngljpeg native\dng_ljpeg_wrapper.cpp /Fe:%LIBS%\dng_ljpeg.dll /Fo:%TEMP%\ /link /LIBPATH:%LIBS% jpeg-static.lib
+if errorlevel 1 (echo ERROR: dng_ljpeg build failed & exit /b 1)
+del /q %LIBS%\dng_ljpeg.exp %LIBS%\dng_ljpeg.lib 2>nul
+echo      dng_ljpeg.dll built OK
+
 REM --- Step 4: single-file publish (Release, self-contained) ---
 echo [4/4] Publishing single-file exe...
 cd /d %ROOT%

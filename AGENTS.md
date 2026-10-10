@@ -66,9 +66,15 @@ tests/SaveZ8.Tests/         xUnit：修复语义 + DNG 结构回读 + 镜头校�
 - 像素：rawpy 回读 DNG == (notch 修复后 NEF)<<2，0 失配
 - 终验由用户在 ACR 实测：畸变/暗角/曝光/预览
 
+## 压缩输出（Compression=7）
+
+- 默认开启（UI 底栏可关）：raw SubIFD 改用 256×256 tile（322/323/324/325），每 tile 独立 lossless JPEG 流（libjpeg-turbo 3.2，SOF3/PSV1/Pt0/16-bit/双分量交错，tile 起始偶对齐）；未压缩路径保留为字节基线（diag 默认，`compressed` 参数切换）
+- 坑：JPEG SOF 的 X=每分量宽（MCU 数），双分量交错时传 cols 而非 cols*channels；wrapper 返回值必须 `long long`（MSVC long=32 位，C# long=64 位 ABI 错配）；tile 填充须自行施加 `x<<2` 域扩展（mosaic 数组本身是 14-bit 域）
+- 验证：压缩 DNG 经 rawpy 解码 == 未压缩参照，0 失配
+
 ## 构建
 
-`build.bat`（仅 Release）→ `out\SaveZ8_v<版本>.exe` 单文件（文件名含 csproj Version）（self-contained、原生库内嵌压缩、无 PDB）。路径由 `Directory.Build.props` 统一：`build\obj`、`build\bin`、`build\publish`、`out`。原生链：libraw 子模块 nmake（`libs\libraw.dll` 存在跳过）→ wrapper 恒重建。冒烟：`out\SaveZ8_v<版本>.exe --selftest <nef>`。
+`build.bat`（仅 Release）→ `out\SaveZ8_v<版本>.exe` 单文件（文件名含 csproj Version）（self-contained、原生库内嵌压缩、无 PDB）。路径由 `Directory.Build.props` 统一：`build\obj`、`build\bin`、`build\publish`、`out`。原生链：libraw 子模块 nmake（存在跳过）→ libraw wrapper 恒重建 → libjpeg-turbo 静态库（cmake，`libs\jpeg-static.lib` 存在跳过）→ dng_ljpeg.dll 恒重建。冒烟：`out\SaveZ8_v<版本>.exe --selftest <nef>`。
 
 ## 待办
 
