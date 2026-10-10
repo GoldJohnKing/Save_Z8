@@ -4,7 +4,7 @@ REM ============================================================
 REM Save Z8 Desktop - Build & Publish Script (Release only)
 REM Usage: build.bat
 REM
-REM Produces: out\SaveZ8.UI.exe  (single-file, self-contained,
+REM Produces: out\SaveZ8_v^<Version^>.exe  (single-file, self-contained,
 REM           native DLLs embedded, ~46 MB, no .NET runtime needed)
 REM Layout (normalized by Directory.Build.props):
 REM   build\obj\<Project>            intermediates
@@ -94,14 +94,20 @@ dotnet publish src\SaveZ8.UI\SaveZ8.UI.csproj -c Release -r win-x64 --self-conta
   -p:DebugType=none -o "%PUB%"
 if errorlevel 1 (echo ERROR: publish failed & exit /b 1)
 
-REM --- Stage final distributable to out\ ---
+REM --- Stage final distributable to out\ (version embedded in filename) ---
+set VER=
+for /f "tokens=3 delims=<>" %%v in ('findstr /r /c:"^ *<Version>" src\SaveZ8.UI\SaveZ8.UI.csproj') do set VER=%%v
+if "%VER%"=="" (
+    echo WARNING: no ^<Version^> in csproj, falling back to 0.0.0
+    set VER=0.0.0
+)
 if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%"
-copy /y "%PUB%\SaveZ8.UI.exe" "%OUT%\" >nul
+copy /y "%PUB%\SaveZ8.UI.exe" "%OUT%\SaveZ8_v%VER%.exe" >nul
 
 echo.
 echo ============================================================
 echo  BUILD SUCCESSFUL
-echo  Distributable: %OUT%\SaveZ8.UI.exe  (single file)
-echo  Smoke test:    out\SaveZ8.UI.exe --selftest ^<file.nef^>
+echo  Distributable: %OUT%\SaveZ8_v%VER%.exe  (single file)
+echo  Smoke test:    out\SaveZ8_v%VER%.exe --selftest ^<file.nef^>
 echo ============================================================

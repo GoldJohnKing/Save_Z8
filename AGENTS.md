@@ -66,7 +66,7 @@ tests/SaveZ8.Tests/         xUnit：修复语义 + DNG 结构回读 + 镜头校�
 
 ## 构建
 
-`build.bat`（仅 Release）→ `out\SaveZ8.UI.exe` 单文件（self-contained、原生库内嵌压缩、无 PDB）。路径由 `Directory.Build.props` 统一：`build\obj`、`build\bin`、`build\publish`、`out`。原生链：libraw 子模块 nmake（`libs\libraw.dll` 存在跳过）→ wrapper 恒重建。冒烟：`out\SaveZ8.UI.exe --selftest <nef>`。
+`build.bat`（仅 Release）→ `out\SaveZ8_v<版本>.exe` 单文件（文件名含 csproj Version）（self-contained、原生库内嵌压缩、无 PDB）。路径由 `Directory.Build.props` 统一：`build\obj`、`build\bin`、`build\publish`、`out`。原生链：libraw 子模块 nmake（`libs\libraw.dll` 存在跳过）→ wrapper 恒重建。冒烟：`out\SaveZ8_v<版本>.exe --selftest <nef>`。
 
 ## 待办
 

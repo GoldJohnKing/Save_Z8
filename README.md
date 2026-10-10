@@ -44,13 +44,13 @@ build.bat
 **产物**（单文件，直接分发，无需安装 .NET 运行时）：
 
 ```
-out\SaveZ8.UI.exe    ~46 MB 单文件（含 libraw / Avalonia / Skia 全部依赖）
+out\SaveZ8_v<版本>.exe   ~46 MB 单文件（含 libraw / Avalonia / Skia 全部依赖，文件名含版本号）
 ```
 
 冒烟自检（无头跑完整管线，验证原生库加载）：
 
 ```cmd
-out\SaveZ8.UI.exe --selftest 某文件.nef
+out\SaveZ8_v<版本>.exe --selftest 某文件.nef
 ```
 
 构建路径规范（由 `Directory.Build.props` 统一）：
@@ -68,7 +68,7 @@ libs\                           原生产物（libraw.dll / libraw_wrapper.dll /
 
 ## 使用
 
-1. 运行 `out\SaveZ8.UI.exe`
+1. 运行 `out\SaveZ8_v<版本>.exe`
 2. 拖入或选择 NEF 文件
 3. 点击"开始修复"——输出自动写入每个 NEF 所在目录的 `Save_Z8\<文件名>_fixed.dng`
 4. 完成后点击列表中的"已修复"可直接在资源管理器中定位产物
