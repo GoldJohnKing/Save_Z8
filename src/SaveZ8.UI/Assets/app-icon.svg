@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Save Z8 应用图标 · 主稿（建议渲染尺寸 ≥48px：48/64/128/256）
+  构图：圆角底板 + 白描边光圈，等比转绘自主界面头部 Logo
+  （MainWindow.axaml：38px 圆角方块，渐变 #2990FF→#135CB8，Icon.Aperture 白描边 1.6/21px 盒）。
+
+  几何唯一来源：MainWindow.axaml 资源 Icon.Aperture（Feather aperture，24 单位制），
+  path 数据原样引用，未做任何手绘近似。
+  描边宽度 1.8125（24 单位制）× scale 32 = 58px，与界面 1.6/17.5px 光圈直径 ≈ 9.1% 同比例。
+  底板圆角 rx=268 ≈ 界面 Logo 10/38 的 26.3%。
+
+  渲染示例：cairosvg app-icon.svg -o icon.png （配合 output-width / output-height 指定边长）
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img">
+  <title>Save Z8</title>
+  <defs>
+    <!-- 界面头部 Logo 同款对角渐变：SemiBlue4 → SemiBlue2 -->
+    <linearGradient id="plate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2990FF"/>
+      <stop offset="1" stop-color="#135CB8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 底板：自带背景，浅色/深色桌面均自立 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="268" fill="url(#plate)"/>
+
+  <!-- 光圈母题：Icon.Aperture 原始 path，24 单位制 → ×32 居中（128..896） -->
+  <g transform="translate(128 128) scale(32)"
+     fill="none" stroke="#FFFFFF" stroke-width="1.8125"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/>
+  </g>
+</svg>

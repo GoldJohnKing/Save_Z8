@@ -8,6 +8,7 @@
         Width="960" Height="640"
         MinWidth="760" MinHeight="520"
         WindowStartupLocation="CenterScreen"
+        Icon="avares://SaveZ8.UI/Assets/app.ico"
         Background="{DynamicResource SemiColorBackground0}">
 
     <Design.DataContext>

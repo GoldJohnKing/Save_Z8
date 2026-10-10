@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <OutputType>WinExe</OutputType>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
@@ -18,6 +19,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SaveZ8.Core\SaveZ8.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\app.ico" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\libs\*.dll" CopyToOutputDirectory="PreserveNewest" />
