@@ -20,6 +20,23 @@ internal static class Program
             Environment.Exit(result.Error != null ? 1 : 0);
         }
 
+        // UI smoke: open the window and auto-import files after layout — exercises
+        // row instantiation (DataTemplate build) without manual interaction:
+        // SaveZ8.UI.exe --ui-smoke <file.nef> [...]
+        if (args.Length >= 2 && args[0] == "--ui-smoke")
+        {
+            var files = args[1..];
+            App.OnMainWindowOpened += w =>
+            {
+                if (w.DataContext is ViewModels.MainViewModel vm)
+                    Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        vm.AddFilesFromPaths(files);
+                        Console.WriteLine($"UI-SMOKE imported {files.Length} file(s), rows={vm.Files.Count}");
+                    }, Avalonia.Threading.DispatcherPriority.Loaded);
+            };
+        }
+
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
