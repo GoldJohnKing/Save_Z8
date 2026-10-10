@@ -447,7 +447,7 @@
                                                         </Panel>
                                                         <!-- 行尾操作列：有输出→打开（定位 DNG）；否则→移除。处理中统一禁用 -->
                                                         <Panel Grid.Column="3"
-                                                               IsEnabled="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsProcessing, Converter={x:Static c:BoolConverters.Not}}">
+                                                               IsEnabled="{Binding $parent[Window].DataContext.IsProcessing, Converter={x:Static c:BoolConverters.Not}}">
                                                             <Button Classes="row-action" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                     Command="{Binding OpenOutputCommand}"
                                                                     IsVisible="{Binding CanOpenOutput}"
@@ -457,7 +457,7 @@
                                                                 </Viewbox>
                                                             </Button>
                                                             <Button Classes="row-action" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSelectedCommand}"
+                                                                    Command="{Binding $parent[Window].DataContext.RemoveSelectedCommand}"
                                                                     CommandParameter="{Binding}"
                                                                     IsVisible="{Binding !CanOpenOutput}"
                                                                     ToolTip.Tip="从列表移除">
