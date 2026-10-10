@@ -1,7 +1,7 @@
 <Project>
   <!-- Repository-wide build path normalization:
        intermediates  -> build/obj/<Project>/<Config>
-       outputs        -> build/bin/<Config>/<Project>/<TFM>
+       outputs        -> build/bin/<Project>/<Config>/<TFM>
        Final distributable set is staged to out/ by build.bat -->
   <PropertyGroup>
     <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)build\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>

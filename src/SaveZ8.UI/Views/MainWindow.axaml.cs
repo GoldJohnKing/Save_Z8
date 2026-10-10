@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -79,11 +80,9 @@ public partial class MainWindow : Window
 
     private void AddDroppedFiles(DragEventArgs e)
     {
-        var paths = e.Data.GetFiles()?
-            .Select(f => f.TryGetLocalPath())
-            .Where(p => !string.IsNullOrEmpty(p) && p.EndsWith(".nef", StringComparison.OrdinalIgnoreCase))
-            .Select(p => p!)
-            .ToArray();
+        var paths = FilterNefPaths(
+            e.Data.GetFiles()?.Select(f => f.TryGetLocalPath())
+            ?? Enumerable.Empty<string?>());
 
         if (paths.Length > 0)
             ViewModel.AddFilesFromPaths(paths);
@@ -107,15 +106,20 @@ public partial class MainWindow : Window
             }
         });
 
-        var paths = files
-            .Select(f => f.TryGetLocalPath())
-            .Where(p => p != null && p.EndsWith(".nef", StringComparison.OrdinalIgnoreCase))
-            .Select(p => p!)
-            .ToArray();
+        var paths = FilterNefPaths(files.Select(f => f.TryGetLocalPath()));
 
         if (paths.Length > 0)
             ViewModel.AddFilesFromPaths(paths);
     }
+
+    /// <summary>
+    /// 拖放与文件选择器共用的 NEF 过滤：非空且扩展名为 .nef（忽略大小写）。
+    /// </summary>
+    private static string[] FilterNefPaths(IEnumerable<string?> paths) =>
+        paths.Where(p => !string.IsNullOrEmpty(p) &&
+                         p.EndsWith(".nef", StringComparison.OrdinalIgnoreCase))
+             .Select(p => p!)
+             .ToArray();
 
     // ---------- 外链（GitHub / 算法出处）----------
 

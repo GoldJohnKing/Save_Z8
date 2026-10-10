@@ -447,7 +447,7 @@
                                                                 </Viewbox>
                                                             </Button>
                                                             <Button Classes="row-action" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                    Command="{Binding $parent[Window].DataContext.RemoveSelectedCommand}"
+                                                                    Command="{Binding $parent[Window].DataContext.RemoveItemCommand}"
                                                                     CommandParameter="{Binding}"
                                                                     IsVisible="{Binding !CanOpenOutput}"
                                                                     ToolTip.Tip="从列表移除">

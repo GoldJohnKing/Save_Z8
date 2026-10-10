@@ -34,12 +34,8 @@ EXPORT void* lr_open(const char* filepath, int* error) {
     h->lr = new LibRaw();
     if (!h->lr) { free(h); *error = -1; return NULL; }
 
-    int ret;
-#ifdef _WIN32
-    ret = h->lr->open_file(filepath);
-#else
-    ret = h->lr->open_file(filepath);
-#endif
+    // Overload resolution (wchar_t vs char) is decided by the function signature above.
+    int ret = h->lr->open_file(filepath);
 
     if (ret != LIBRAW_SUCCESS) {
         delete h->lr; free(h);

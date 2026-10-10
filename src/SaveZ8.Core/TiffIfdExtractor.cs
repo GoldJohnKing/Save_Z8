@@ -181,7 +181,7 @@ public class TiffIfdExtractor
     }
 
     /// <summary>Parses SOF0/SOF1/SOF2 for pixel dimensions from a baseline JPEG stream.</summary>
-    internal static (int Width, int Height) ParseJpegSof(byte[] jpeg)
+    private static (int Width, int Height) ParseJpegSof(byte[] jpeg)
     {
         int i = 2; // skip SOI
         while (i + 9 < jpeg.Length)

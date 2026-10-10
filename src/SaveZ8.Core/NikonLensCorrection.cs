@@ -13,7 +13,8 @@ namespace SaveZ8.Core;
 ///   Red plane:    G + A · p   (p = six block-7 rationals)
 ///   Blue plane:   G + C · p
 /// Residuals: distortion 1e-6 (≈0.003 px), CA first-order (corner residual < 1 px).
-/// Vignette (block 6) is not transferred (no calibration sample with Vignette Control ON).
+/// Vignette (block 6) is written as OpcodeList2 only when the block 8 activity flag
+/// (+0x04) signals Vignette Control ON; otherwise nothing is emitted (Adobe parity).
 /// </summary>
 public static class NikonLensCorrection
 {
@@ -50,7 +51,6 @@ public static class NikonLensCorrection
         public double[][] Planes { get; init; } = Array.Empty<double[]>();
         public double CenterX { get; init; } = 0.5;
         public double CenterY { get; init; } = 0.5;
-        public double[] K { get; init; } = new double[3];
     }
 
     public class VignetteParams
@@ -153,7 +153,7 @@ public static class NikonLensCorrection
 
         return new CorrectionResult
         {
-            Warp = new WarpParams { Planes = new[] { r0, g, b0 }, K = new[] { k1, k2, k3 } },
+            Warp = new WarpParams { Planes = new[] { r0, g, b0 } },
             Vignette = DecodeVignette(block6, block8),
         };
     }

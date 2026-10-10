@@ -8,19 +8,10 @@ namespace SaveZ8.Tests;
 /// Structural validation of DNG output: TIFF/DNG spec compliance and EXIF preservation.
 /// Reference: JO.html convert_to_dng (verified working in Photoshop/ACR).
 /// </summary>
-public class DngStructureTests : IDisposable
+public class DngStructureTests : TempDirTestBase
 {
-    private readonly string _tmpDir;
-
-    public DngStructureTests()
+    public DngStructureTests() : base("savez8-dng-tests")
     {
-        _tmpDir = Path.Combine(Path.GetTempPath(), "savez8-dng-tests-" + Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(_tmpDir);
-    }
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_tmpDir, true); } catch { }
     }
 
     // ---------- Test 1: core DNG structure (the Photoshop-fatal defects) ----------

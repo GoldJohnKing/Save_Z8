@@ -16,8 +16,7 @@ public partial class FileItemViewModel : ObservableObject
 {
     [ObservableProperty] private string _fileName = "";
     [ObservableProperty] private string _filePath = "";
-    [ObservableProperty] private string _status = "待处理";
-    [ObservableProperty] private bool _fixApplied;
+    [ObservableProperty] private string _status = FileStatus.Pending;
     [ObservableProperty] private long _pixelsFixed;
     [ObservableProperty] private string _error = "";
 
@@ -28,11 +27,11 @@ public partial class FileItemViewModel : ObservableObject
     public bool CanOpenOutput => !string.IsNullOrEmpty(OutputPath);
 
     // ---- UI 状态派生（Status 是唯一事实来源；仅供视图分层着色，不参与处理逻辑）----
-    public bool IsPending => Status == "待处理";
-    public bool IsProcessing => Status.StartsWith("处理中", StringComparison.Ordinal);
-    public bool IsFixed => Status.StartsWith("已修复", StringComparison.Ordinal);
-    public bool IsNotNeeded => Status == "无需修复";
-    public bool IsError => Status.StartsWith("错误", StringComparison.Ordinal);
+    public bool IsPending => FileStatus.IsPending(Status);
+    public bool IsProcessing => FileStatus.IsProcessing(Status);
+    public bool IsFixed => FileStatus.IsFixed(Status);
+    public bool IsNotNeeded => FileStatus.IsNotNeeded(Status);
+    public bool IsError => FileStatus.IsError(Status);
 
     partial void OnStatusChanged(string value)
     {
@@ -67,7 +66,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _libRawVersion = "";
 
     // ---- UI 状态 ----
-    [ObservableProperty] private FileItemViewModel? _selectedFile;
     [ObservableProperty] private bool _isDragOver;
 
     /// <summary>本软件版本号（如 v0.1.0），启动时读程序集版本并缓存。</summary>
@@ -137,7 +135,7 @@ public partial class MainViewModel : ObservableObject
     // File picking is handled by the View (Avalonia StorageProvider)
 
     [RelayCommand]
-    private void RemoveSelected(FileItemViewModel? item)
+    private void RemoveItem(FileItemViewModel? item)
     {
         if (item != null)
             Files.Remove(item);
@@ -159,7 +157,7 @@ public partial class MainViewModel : ObservableObject
         Progress = 0;
         _cts = new CancellationTokenSource();
 
-        var items = Files.Where(f => f.Status == "待处理" || f.Status.StartsWith("错误")).ToList();
+        var items = Files.Where(f => FileStatus.IsPending(f.Status) || FileStatus.IsError(f.Status)).ToList();
         int total = items.Count;
         int done = 0;
 
@@ -168,8 +166,8 @@ public partial class MainViewModel : ObservableObject
             foreach (var item in items)
             {
                 _cts.Token.ThrowIfCancellationRequested();
-                StatusText = $"处理中 ({done + 1}/{total}): {item.FileName}";
-                item.Status = "处理中…";
+                StatusText = string.Format(FileStatus.ProcessingProgressFormat, done + 1, total, item.FileName);
+                item.Status = FileStatus.Processing;
 
                 await Task.Run(() =>
                 {
@@ -183,18 +181,18 @@ public partial class MainViewModel : ObservableObject
                         Directory.CreateDirectory(outputDir);
 
                         var result = _processor.Process(item.FilePath, outputPath);
-                        item.FixApplied = result.FixApplied;
                         item.PixelsFixed = result.PixelsFixed;
                         item.OutputPath = result.Error == null ? result.OutputPath : "";
                         item.Error = result.Error ?? "";
-                        item.Status = result.Error != null ? $"错误: {TruncateError(result.Error)}" :
-                            (result.FixApplied ? "已修复" : "无需修复");
+                        item.Status = result.Error != null
+                            ? string.Format(FileStatus.ErrorFormat, TruncateError(result.Error))
+                            : (result.FixApplied ? FileStatus.Fixed : FileStatus.NotNeeded);
                     }
                     catch (Exception ex)
                     {
                         item.OutputPath = "";
                         item.Error = ex.Message;
-                        item.Status = $"错误: {TruncateError(ex.Message)}";
+                        item.Status = string.Format(FileStatus.ErrorFormat, TruncateError(ex.Message));
                     }
                 }, _cts.Token);
 
@@ -206,11 +204,11 @@ public partial class MainViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            StatusText = "已取消";
+            StatusText = FileStatus.Cancelled;
         }
         catch (Exception ex)
         {
-            StatusText = $"错误: {ex.Message}";
+            StatusText = string.Format(FileStatus.ErrorFormat, ex.Message);
         }
         finally
         {
@@ -235,8 +233,7 @@ public partial class MainViewModel : ObservableObject
                 Files.Add(new FileItemViewModel
                 {
                     FileName = Path.GetFileName(path),
-                    FilePath = path,
-                    Status = "待处理"
+                    FilePath = path
                 });
             }
         }

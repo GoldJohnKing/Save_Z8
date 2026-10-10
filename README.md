@@ -90,12 +90,12 @@ build\bin\diag\Release\net8.0-windows\diag.exe <NEF 路径>
 ```
 src\SaveZ8.Core\         核心库（解码/修复/元数据/镜头校正/DNG 写盘）
 src\SaveZ8.UI\           Avalonia 桌面界面
+src\SaveZ8.UI\Assets\    应用图标 SVG 源稿 + ICO
 tests\SaveZ8.Tests\      xUnit 测试（修复语义 + DNG 结构回读 + 镜头校正映射）
 tools\diag\              命令行诊断工具
 native\libraw_wrapper.cpp  LibRaw C 包装器（P/Invoke 边界）
 external\libraw\         LibRaw 子模块（y-g-jiang fork，nikon-he-production 分支）
 samples\                 验证样本（LFS）：标准无损 / HE\* / HE 各一
-native\libraw_wrapper.cpp  LibRaw C 包装器（P/Invoke 边界）
 ```
 
 ## 已知限制

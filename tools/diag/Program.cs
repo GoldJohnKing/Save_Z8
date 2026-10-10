@@ -70,7 +70,7 @@ class Diag
         try
         {
             var r = BlackLevelFixer.Fix(pixels, width, height,
-                black > 0 ? black : 1008);
+                black > 0 ? black : BlackLevelFixer.BlackLevelDefault);
             Console.WriteLine(r.Applied ? $"APPLIED ({r.PixelsFixed:N0} px)" : "SKIP (no notch)");
             Console.WriteLine($"  thresholds=[{string.Join(",", r.Thresholds)}] " +
                 $"c1006=[{string.Join(",", r.Counts1006)}] c1007=[{string.Join(",", r.Counts1007)}] " +

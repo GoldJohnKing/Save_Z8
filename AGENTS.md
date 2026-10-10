@@ -54,10 +54,12 @@ tests/SaveZ8.Tests/         xUnit：修复语义 + DNG 结构回读 + 镜头校�
 
 ## 验证回路（任何改动后）
 
+**真实 NEF 样本统一用 `samples\`**（三件套：7576=标准无损/ISO3200 字节恒等基线，7593=HE\*/ISO64，7594=HE/ISO64；LFS 管理，勿依赖任何外部相册路径）：
+
 ```bash
 /mnt/c/Program\ Files/dotnet/dotnet.exe test tests/SaveZ8.Tests/SaveZ8.Tests.csproj -c Release   # 单测
 /mnt/c/Program\ Files/dotnet/dotnet.exe build tools/diag/diag.csproj -c Release                  # diag
-.../build/bin/diag/Release/net8.0-windows/diag.exe <NEF>                                          # E2E
+.../build/bin/diag/Release/net8.0-windows/diag.exe samples/DSC_7576.NEF                          # E2E；输出应恒为 SHA-256 c554fab5…
 ```
 
 - 结构：自写 Python IFD 遍历核对 273/279、CFAPattern∈{0,1,2}、opcode 位置、Crop/ActiveArea 与 ADC 参照一致

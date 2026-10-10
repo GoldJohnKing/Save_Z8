@@ -22,7 +22,7 @@ public class NefProcessor
                 Pixels = pixels,
                 Width = width,
                 Height = height,
-                BlackLevel = black > 0 ? black : 1008,
+                BlackLevel = black > 0 ? black : BlackLevelFixer.BlackLevelDefault,
                 CfaPattern = cfa,
                 OriginalMetadata = metadata
             };

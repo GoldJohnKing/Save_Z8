@@ -51,6 +51,8 @@ public class DngWriter
     private const ushort TagDefaultCropOrigin = 50719;
     private const ushort TagDefaultCropSize = 50720;
     private const ushort TagActiveArea = 50829;
+    private const ushort TagOpcodeList2 = 51009;
+    private const ushort TagOpcodeList3 = 51022;
     private const ushort TagBaselineExposure = 50730;
     private const ushort TagBaselineNoise = 50731;
     private const ushort TagBaselineSharpness = 50732;
@@ -192,13 +194,13 @@ public class DngWriter
         if (correction?.Warp != null)
         {
             var opcodes = NikonLensCorrection.SerializeOpcodeList3(correction.Warp);
-            rawBlock.Entries.Add(new Entry { Tag = 51022, Type = 7, // OpcodeList3
+            rawBlock.Entries.Add(new Entry { Tag = TagOpcodeList3, Type = 7,
                 Count = (uint)opcodes.Length, Blob = opcodes });
         }
         if (correction?.Vignette != null)
         {
             var opcodes = NikonLensCorrection.SerializeOpcodeList2(correction.Vignette);
-            rawBlock.Entries.Add(new Entry { Tag = 51009, Type = 7, // OpcodeList2
+            rawBlock.Entries.Add(new Entry { Tag = TagOpcodeList2, Type = 7,
                 Count = (uint)opcodes.Length, Blob = opcodes });
         }
         rawBlock.Entries.Sort((a, b) => a.Tag.CompareTo(b.Tag));

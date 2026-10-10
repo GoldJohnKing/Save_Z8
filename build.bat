@@ -57,7 +57,7 @@ if exist "%LIBS%\libraw.dll" (
     goto :wrapper
 )
 
-echo [2/4] Building LibRaw 0.21.3...
+echo [2/4] Building LibRaw (JO fork)...
 call "!VCVARS!" x64 >nul 2>&1
 cd /d %EXT%
 if not exist bin mkdir bin
@@ -78,9 +78,9 @@ echo [3/4] Building libraw_wrapper.dll...
 call "!VCVARS!" x64 >nul 2>&1
 if not exist %LIBS% mkdir %LIBS%
 
-cl /nologo /LD /O2 /EHsc /W0 /I%EXT% %ROOT%native\libraw_wrapper.cpp /Fe:%LIBS%\libraw_wrapper.dll /link /LIBPATH:%LIBS% libraw.lib
+cl /nologo /LD /O2 /EHsc /W0 /I%EXT% /Fo:%TEMP%\ %ROOT%native\libraw_wrapper.cpp /Fe:%LIBS%\libraw_wrapper.dll /link /LIBPATH:%LIBS% libraw.lib
 if errorlevel 1 (echo ERROR: libraw_wrapper build failed & exit /b 1)
-del /q %LIBS%\libraw_wrapper.obj %LIBS%\libraw_wrapper.exp %LIBS%\libraw_wrapper.lib 2>nul
+del /q "%TEMP%\libraw_wrapper.obj" %LIBS%\libraw_wrapper.exp %LIBS%\libraw_wrapper.lib 2>nul
 echo       libraw_wrapper.dll built OK
 
 REM --- Step 4: single-file publish (Release, self-contained) ---

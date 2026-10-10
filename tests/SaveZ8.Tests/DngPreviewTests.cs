@@ -8,19 +8,10 @@ namespace SaveZ8.Tests;
 /// Preview embedding (SubIFD previews + IFD1 thumbnail), DefaultCrop derivation,
 /// and safe-IFD0-tag whitelist (Orientation) validation.
 /// </summary>
-public class DngPreviewTests : IDisposable
+public class DngPreviewTests : TempDirTestBase
 {
-    private readonly string _tmpDir;
-
-    public DngPreviewTests()
+    public DngPreviewTests() : base("savez8-preview-tests")
     {
-        _tmpDir = Path.Combine(Path.GetTempPath(), "savez8-preview-tests-" + Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(_tmpDir);
-    }
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_tmpDir, true); } catch { }
     }
 
     /// <summary>Minimal JPEG with SOF0 (w×h) plus an optional COM segment for padding.</summary>
