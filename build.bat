@@ -57,7 +57,7 @@ if exist "%LIBS%\libraw.dll" (
     goto :wrapper
 )
 
-echo [2/4] Building LibRaw (JO fork)...
+echo [2/4] Building LibRaw (redlamp fork)...
 call "!VCVARS!" x64 >nul 2>&1
 cd /d %EXT%
 if not exist bin mkdir bin

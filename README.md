@@ -18,7 +18,7 @@
 
 | 组件 | JO 的实现 | 本项目 |
 |---|---|---|
-| NEF 解码 | joraw2.wasm（**LibRaw 0.22.2** WASM 封装，含 `nikonHe`/`nikonHeStar` 补丁） | LibRaw fork（nikon-he-production 分支，同源补丁）原生 DLL + C 包装器 |
+| NEF 解码 | joraw2.wasm（**LibRaw 0.22.2** WASM 封装，含 `nikonHe`/`nikonHeStar` 补丁） | redlamp-libraw（同源补丁）原生 DLL + C 包装器 |
 | 修复算法 | Pyodide + numpy（网页内 Python） | C#（`BlackLevelFixer`） |
 | DNG 写盘 | Pyodide 手写 TIFF/DNG（`convert_to_dng`） | C#（`DngWriter`，结构对齐该参考实现） |
 
@@ -38,7 +38,7 @@ Adobe DNG Converter 18.6 的官方输出做过数值标定（详见 `src/SaveZ8.
 build.bat
 ```
 
-脚本自动完成：子模块初始化 → LibRaw 编译（JO fork，含 HE/HE\* 解码器）→ `libraw_wrapper.dll` 编译 →
+脚本自动完成：子模块初始化 → LibRaw 编译（redlamp fork，含 HE/HE* 解码器）→ `libraw_wrapper.dll` 编译 →
 单文件发布（Release，self-contained，原生库内嵌压缩）。
 
 **产物**（单文件，直接分发，无需安装 .NET 运行时）：
